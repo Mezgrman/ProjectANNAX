@@ -1,3 +1,18 @@
+/*
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #define PIN_ROW_A 2
 #define PIN_ROW_B 3
 #define PIN_ROW_C 7
@@ -55,6 +70,10 @@ bool isOn = true;
 bool wasOn = true;
 bool stopIndicatorOn = false;
 
+void clearDisplayData() {
+  memset(curDispData, 0, sizeof curDispData);
+}
+
 void writeAllLow() {
   digitalWrite(PIN_ROW_A, LOW);
   digitalWrite(PIN_ROW_B, LOW);
@@ -76,7 +95,7 @@ void setStopIndicator(bool state) {
 }
 
 int getPinForRow(int row) {
-  while(row < 0) {
+  if(row < 0) {
     row += 8;
   }
   row %= 8;
@@ -164,11 +183,11 @@ void doSerialCommunication() {
     <data> - Bitmap data
   
   Otherwise:
-    <1 or 2 bytes> - Value of the selected option
+    <1 byte> - Value of the selected option
   
   
   
-  RETURN VALUES
+  RESPONSE VALUES
   
   <0xE0> - Invalid action byte
   <0xE1> - Invalid intermediate byte #1
@@ -278,7 +297,7 @@ void doSerialCommunication() {
         
         // Clear the previous display data and receive the new data
         curDispDataBlockCount = blockCount;
-        memset(curDispData, 0, sizeof curDispData);
+        clearDisplayData();
         for(int block = 0; block < blockCount; block++) {
           for(int idx = 0; idx < 8; idx++) {
             // Wait for data in case the buffer is empty earlier than it should be
@@ -295,7 +314,7 @@ void doSerialCommunication() {
               if(timeoutHit) {
                 // Error 4: Timeout while receiving bitmap data
                 // Discard data that has already been received
-                memset(curDispData, 0, sizeof curDispData);
+                clearDisplayData();
                 clearSerialBuffer();
                 Serial.write(0xE4);
                 return;
@@ -307,7 +326,7 @@ void doSerialCommunication() {
             if(curByte < 0x00 || curByte > 0xFF) {
               // Error 5: Invalid bitmap data
               // Discard data that has already been received
-              memset(curDispData, 0, sizeof curDispData);
+              clearDisplayData();
               clearSerialBuffer();
               Serial.write(0xE5);
               return;
@@ -578,8 +597,7 @@ void writeArrayScrolling(byte array[][8], int interval = 1, int scrollDirection 
 }
 
 void setup() {
-  // Clear display data
-  memset(curDispData, 0, sizeof curDispData);
+  clearDisplayData();
   
   pinMode(PIN_ROW_A, OUTPUT);
   pinMode(PIN_ROW_B, OUTPUT);

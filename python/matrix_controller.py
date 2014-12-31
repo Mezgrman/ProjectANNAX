@@ -36,7 +36,7 @@ class MatrixError(Exception):
 	}
 	
 	def __init__(self, code = None, response = None):
-		if not code:
+		if code is None:
 			if response:
 				self.code = response - 0xE0
 			else:
