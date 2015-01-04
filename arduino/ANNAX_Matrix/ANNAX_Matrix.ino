@@ -1,3 +1,5 @@
+// Copyright 2014 Julian Metzler
+
 /*
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
@@ -13,7 +15,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#define PIN_ROW_A 2
+// Pin configuration for UNO test board
+/*#define PIN_ROW_A 2
 #define PIN_ROW_B 3
 #define PIN_ROW_C 7
 #define PIN_ROW_D 4
@@ -25,16 +28,34 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define PIN_DATA 9
 #define PIN_SRCLK 6
 #define PIN_ORCLK 5
-#define PIN_STOP_INDICATOR 14 // Analog In 0
+#define PIN_STOP_INDICATOR 14 // Analog In 0*/
+
+// Pin configuration for NANO controller board
+#define PIN_ROW_A 7
+#define PIN_ROW_B 8
+#define PIN_ROW_C 5
+#define PIN_ROW_D 9
+#define PIN_ROW_E 6
+#define PIN_ROW_F 3
+#define PIN_ROW_G 2
+#define PIN_ROW_H 4
+#define PIN_OUTPUT_DISABLE 10
+#define PIN_DATA 13
+#define PIN_SRCLK 11
+#define PIN_ORCLK 12
+#define PIN_STOP_INDICATOR 14 // Analog In 0*/
 
 // The baudrate to use for the serial port
-#define BAUDRATE 57600
+#define BAUDRATE 115200
 
 // The number of LED matrix modules connected to the controller (= The number of columns divided by 8)
 #define NUM_BLOCKS 15
 
 // The maximum number of blocks that a message may consist of
 #define MAX_BLOCK_COUNT 200
+
+// The number of microseconds that should be waited for bitmap data until a timeout error is returned
+#define BITMAP_READ_TIMEOUT 1000
 
 enum displayModes {
   DISP_MODE_STATIC,
@@ -62,12 +83,12 @@ int curDispMode = DISP_MODE_STATIC;
 int curScrollDir = SCROLL_LEFT;
 int curScrollSpeed = 1;
 int curScrollMode = SCROLL_MODE_REPEAT_ON_DISAPPEARANCE;
-int curScrollGap = 0;
+int curScrollGap = 5;
 int scrollWidth = NUM_BLOCKS;
 int curBlinkFrequency = -1;
 bool curBlinkState = true;
-bool isOn = true;
-bool wasOn = true;
+bool isOn = false;
+bool wasOn = false;
 bool stopIndicatorOn = false;
 
 void clearDisplayData() {
@@ -298,6 +319,7 @@ void doSerialCommunication() {
         // Clear the previous display data and receive the new data
         curDispDataBlockCount = blockCount;
         clearDisplayData();
+        digitalWrite(PIN_OUTPUT_DISABLE, HIGH); // To prevent the high LED current from flowing through a single row for too long
         for(int block = 0; block < blockCount; block++) {
           for(int idx = 0; idx < 8; idx++) {
             // Wait for data in case the buffer is empty earlier than it should be
@@ -308,7 +330,7 @@ void doSerialCommunication() {
               while(Serial.available() <= 0 && !timeoutHit) {
                 // Idle as long as the timeout hasn't been hit and no data is in the buffer
                 unsigned long timeElapsed = micros() - bufEmptyStart;
-                timeoutHit = timeElapsed >= 1000 || timeElapsed < 0; // < 0 in case the micros rolled over to zero
+                timeoutHit = timeElapsed >= BITMAP_READ_TIMEOUT || timeElapsed < 0; // < 0 in case the micros rolled over to zero
               }
               
               if(timeoutHit) {
@@ -316,6 +338,7 @@ void doSerialCommunication() {
                 // Discard data that has already been received
                 clearDisplayData();
                 clearSerialBuffer();
+                digitalWrite(PIN_OUTPUT_DISABLE, LOW);
                 Serial.write(0xE4);
                 return;
               }
@@ -328,6 +351,7 @@ void doSerialCommunication() {
               // Discard data that has already been received
               clearDisplayData();
               clearSerialBuffer();
+              digitalWrite(PIN_OUTPUT_DISABLE, LOW);
               Serial.write(0xE5);
               return;
             }
@@ -335,6 +359,7 @@ void doSerialCommunication() {
           }
         }
         
+        digitalWrite(PIN_OUTPUT_DISABLE, LOW);
         updateScrollWidth();
         break;
       
@@ -345,6 +370,7 @@ void doSerialCommunication() {
           case 0x00:
             // Static
             curDispMode = DISP_MODE_STATIC;
+            curScrollPos = 0;
             break;
           
           case 0x01:
@@ -525,9 +551,9 @@ void writeArrayStatic(byte array[][8]) {
     digitalWrite(PIN_ORCLK, HIGH);
     digitalWrite(PIN_ORCLK, LOW);
     
-    digitalWrite(getPinForRow(row), HIGH);
-    
     doSerialCommunication();
+    
+    digitalWrite(getPinForRow(row), HIGH);
   }
   
   if(curBlinkFrequency > 0) {
@@ -570,9 +596,9 @@ void writeArrayScrolling(byte array[][8], int interval = 1, int scrollDirection 
     digitalWrite(PIN_ORCLK, HIGH);
     digitalWrite(PIN_ORCLK, LOW);
     
-    digitalWrite(getPinForRow(row), HIGH);
-    
     doSerialCommunication();
+    
+    digitalWrite(getPinForRow(row), HIGH);
   }
   
   curScrollFrame++;
@@ -635,6 +661,6 @@ void loop() {
     }
   } else {
     doSerialCommunication();
-    delay(100);
+    delay(25);
   }
 }
