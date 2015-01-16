@@ -1,4 +1,4 @@
-// Copyright 2014 Julian Metzler
+// Copyright 2014-2015 Julian Metzler
 
 /*
 This program is free software: you can redistribute it and/or modify
@@ -52,14 +52,15 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define NUM_BLOCKS 15
 
 // The maximum number of blocks that a message may consist of
-#define MAX_BLOCK_COUNT 200
+#define MAX_BLOCK_COUNT 150
 
 // The number of microseconds that should be waited for bitmap data until a timeout error is returned
-#define BITMAP_READ_TIMEOUT 1000
+#define BITMAP_READ_TIMEOUT 1000000
 
 enum displayModes {
   DISP_MODE_STATIC,
-  DISP_MODE_SCROLL
+  DISP_MODE_SCROLL,
+  DISP_MODE_AUTO
 };
 
 enum scrollDirections {
@@ -75,16 +76,18 @@ enum scrollModes {
 
 byte curDispData[MAX_BLOCK_COUNT + NUM_BLOCKS][8]; // + NUM_BLOCKS as a backup space for scrollMode REPEAT_ON_DISAPPEARANCE
 
-int curScrollPos = 0;
 int curScrollFrame = 0;
 int curBlinkFrame = 0;
 int curDispDataBlockCount = NUM_BLOCKS;
-int curDispMode = DISP_MODE_STATIC;
+int curDispMode = DISP_MODE_AUTO;
+int actualDispMode = DISP_MODE_STATIC;
 int curScrollDir = SCROLL_LEFT;
 int curScrollSpeed = 1;
+int curScrollStep = 1;
 int curScrollMode = SCROLL_MODE_REPEAT_ON_DISAPPEARANCE;
 int curScrollGap = 5;
 int scrollWidth = NUM_BLOCKS;
+int curScrollPos = NUM_BLOCKS * 8 * 8;
 int curBlinkFrequency = -1;
 bool curBlinkState = true;
 bool isOn = false;
@@ -179,6 +182,12 @@ void clearSerialBuffer() {
   }
 }
 
+void dumpSerialBuffer() {
+  while(Serial.available() > 0) {
+    Serial.write(Serial.read());
+  }
+}
+
 void doSerialCommunication() {
   /*
   SERIAL PROTOCOL
@@ -187,7 +196,7 @@ void doSerialCommunication() {
   
   <1 byte> - Type of message
     <0xA0> - Send a display bitmap
-    <0xA1> - Set the display mode (Scrolling / Static)
+    <0xA1> - Set the display mode (Scrolling / Static / Automatic)
     <0xA2> - Set the scroll speed (frame interval)
     <0xA3> - Set the scroll direction (left / right)
     <0xA4> - Set the scroll mode (repeat on visibility of end / repeat on disappearance / repeat after gap)
@@ -195,6 +204,7 @@ void doSerialCommunication() {
     <0xA6> - Enable / disable display
     <0xA7> - Set blink frequency
     <0xA8> - Enable / disable stop indicator
+    <0xA9> - Set the scroll step (number of pixels to be shifted each frame)
   
   <0xCC> - Intermediate byte
   
@@ -274,10 +284,16 @@ void doSerialCommunication() {
         // Enable / disable stop indicator
         break;
       
+      case 0xA9:
+        // Set scroll step
+        break;
+      
       default:
         // Error 0: Invalid action byte
-        clearSerialBuffer();
+        //clearSerialBuffer();
         Serial.write(0xE0);
+        Serial.write(actionByte);
+        dumpSerialBuffer();
         return;
     }
     
@@ -285,8 +301,10 @@ void doSerialCommunication() {
     int intermediateByte = Serial.read();
     if(intermediateByte != 0xCC) {
       // Error 1: Invalid intermediate byte #1
-      clearSerialBuffer();
+      //clearSerialBuffer();
       Serial.write(0xE1);
+      Serial.write(intermediateByte);
+      dumpSerialBuffer();
       return;
     }
     
@@ -302,8 +320,10 @@ void doSerialCommunication() {
         
         if(blockCount <= 0 || blockCount > MAX_BLOCK_COUNT) {
           // Error 2: Invalid block count
-          clearSerialBuffer();
+          //clearSerialBuffer();
           Serial.write(0xE2);
+          Serial.write(blockCount);
+          dumpSerialBuffer();
           return;
         }
         
@@ -311,8 +331,10 @@ void doSerialCommunication() {
         intermediateByte = Serial.read();
         if(intermediateByte != 0xCC) {
           // Error 3: Invalid intermediate byte #2
-          clearSerialBuffer();
+          //clearSerialBuffer();
           Serial.write(0xE3);
+          Serial.write(intermediateByte);
+          dumpSerialBuffer();
           return;
         }
         
@@ -361,6 +383,14 @@ void doSerialCommunication() {
         
         digitalWrite(PIN_OUTPUT_DISABLE, LOW);
         updateScrollWidth();
+        if(curDispMode == DISP_MODE_AUTO) {
+          if(curDispDataBlockCount > NUM_BLOCKS) {
+            actualDispMode = DISP_MODE_SCROLL;
+          } else {
+            actualDispMode = DISP_MODE_STATIC;
+          }
+          curScrollPos = NUM_BLOCKS * 8;
+        }
         break;
       
       case 0xA1:
@@ -370,12 +400,26 @@ void doSerialCommunication() {
           case 0x00:
             // Static
             curDispMode = DISP_MODE_STATIC;
-            curScrollPos = 0;
+            actualDispMode = DISP_MODE_STATIC;
+            curScrollPos = NUM_BLOCKS * 8;
             break;
           
           case 0x01:
             // Scrolling
             curDispMode = DISP_MODE_SCROLL;
+            actualDispMode = DISP_MODE_SCROLL;
+            curScrollPos = NUM_BLOCKS * 8;
+            break;
+          
+          case 0x02:
+            // Automatic
+            curDispMode = DISP_MODE_AUTO;
+            if(curDispDataBlockCount > NUM_BLOCKS) {
+              actualDispMode = DISP_MODE_SCROLL;
+            } else {
+              actualDispMode = DISP_MODE_STATIC;
+            }
+            curScrollPos = NUM_BLOCKS * 8;
             break;
           
           default:
@@ -528,6 +572,19 @@ void doSerialCommunication() {
             return;
         }
         break;
+      
+      case 0xA9:
+        // Set scroll step
+        valueByte = Serial.read();
+        // Check value
+        if(valueByte < 0x01 || valueByte > 0xFF) {
+          // Error 6: Invalid value for selected option
+          clearSerialBuffer();
+          Serial.write(0xE6);
+          return;
+        }
+        curScrollStep = valueByte;
+        break;
     }
     
     // Serial communication successful
@@ -606,9 +663,9 @@ void writeArrayScrolling(byte array[][8], int interval = 1, int scrollDirection 
     curScrollFrame = 0;
     
     if(scrollDirection == SCROLL_RIGHT) {
-      modifyValue(&curScrollPos, 1, 0, scrollWidth * 8);
+      modifyValue(&curScrollPos, curScrollStep, 0, scrollWidth * 8);
     } else if(scrollDirection == SCROLL_LEFT) {
-      modifyValue(&curScrollPos, -1, 0, scrollWidth * 8);
+      modifyValue(&curScrollPos, -curScrollStep, 0, scrollWidth * 8);
     }
   }
   
@@ -654,9 +711,9 @@ void loop() {
   }
   
   if(isOn) {
-    if(curDispMode == DISP_MODE_STATIC) {
+    if(actualDispMode == DISP_MODE_STATIC) {
       writeArrayStatic(curDispData);
-    } else if(curDispMode == DISP_MODE_SCROLL) {
+    } else if(actualDispMode == DISP_MODE_SCROLL) {
       writeArrayScrolling(curDispData, curScrollSpeed, curScrollDir);
     }
   } else {

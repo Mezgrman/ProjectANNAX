@@ -32,14 +32,14 @@ def main():
     parser = argparse.ArgumentParser(description = "Command-line control script for a matrix controller")
     parser.add_argument('-p', '--port', type = str, default = "/dev/ttyACM0",
         help = "The serial port to use for communication with the matrix controller (Default: /dev/ttyACM0)")
-    parser.add_argument('-b', '--baudrate', type = int, default = 57600,
+    parser.add_argument('-b', '--baudrate', type = int, default = 115200,
         help = "The baudrate to use for communication with the matrix controller (Default: 57600)")
     
     parser.add_argument('-i', '--image', type = str, default = None,
         help = "An image to load into the matrix (black = pixel off, any other color = pixel on)")
     parser.add_argument('-t', '--text', type = str, default = None,
         help = "A text to write to the matrix, rendered with the specified TrueType font")
-    parser.add_argument('-f', '--font', type = str, default = "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf",
+    parser.add_argument('-f', '--font', type = str, default = "Arial",
         help = "The TrueType font (file path) to use for rendering text (Default: Arial)")
     parser.add_argument('-s', '--font-size', type = int, default = 11,
         help = "The font size to use for rendering text (Default: 11)")
@@ -62,6 +62,8 @@ def main():
         help = "The frame count until the display blink state should be toggled")
     parser.add_argument('-si', '--stop-indicator', type = str, choices = ('on', 'off'), default = None,
         help = "Enable or disable the stop indicator")
+    parser.add_argument('-sst', '--scroll-step', type = int, default = None,
+        help = "How many pixels a scrolling text should be shifted each frame (higher values = faster scrolling)")
 
     args = parser.parse_args()
     
@@ -124,6 +126,9 @@ def main():
             state = 1
         
         controller.set_stop_indicator(state)
+    
+    if args.scroll_step is not None:
+        controller.set_scroll_step(args.scroll_step)
 
 if __name__ == "__main__":
     main()

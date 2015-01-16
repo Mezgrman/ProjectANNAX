@@ -86,6 +86,7 @@ Option|Choices
 `power_state`|`on`, `off`
 `blink_frequency`|Value from `0` to `255`
 `stop_indicator`|`on`, `off`
+`scroll_step`|Value from `1` to `255`
 
 **Example:**
 ```json
@@ -96,96 +97,96 @@ Option|Choices
 Set displays 0 and 1 to display right-scrolling text:
 ```json
 {
-	"type": "control",
-	"displays": [0, 1],
-	"message": {
-		"display_mode": "scroll",
-		"scroll_direction": "right"
-	}
+    "type": "control",
+    "displays": [0, 1],
+    "message": {
+        "display_mode": "scroll",
+        "scroll_direction": "right"
+    }
 }
 ```
 
 Send the text "Welcome" in Arial Bold to display 3:
 ```json
 {
-	"type": "data",
-	"displays": [3],
-	"message": {
-		"type": "text",
-		"data": {
-			"align": "center",
-			"font": "Arial Bold",
-			"size": 11,
-			"text": "Welcome"
-		}
-	}
+    "type": "data",
+    "displays": [3],
+    "message": {
+        "type": "text",
+        "data": {
+            "align": "center",
+            "font": "Arial Bold",
+            "size": 11,
+            "text": "Welcome"
+        }
+    }
 }
 ```
 
 Send a sequence of a bitmap and a text with an inline image to display 2 where the bitmap and the text will be displayed for 5 seconds and 3.5 seconds respectively:
 ```json
 {
-	"type": "data",
-	"displays": [2],
-	"message": {
-		"type": "sequence",
-		"data": [
-			{
-				"type": "bitmap",
-				"data": {
-					"duration": 5.0,
-					"align": "right",
-					"bitmap": [
-						[0, 1, 0, 1, 1, 1, 0, 1, ...],
-						[1, 1, 1, 0, 1, 1, 0, 0, ...],
-						...
-					]
-				}
-			},
-			{
-				"type": "text",
-				"data": {
-					"duration": 3.5,
-					"align": null,
-					"font": "FreeSans",
-					"size": 11,
-					"text": "@img:<sun.png> What a nice day!"
-				}
-			}
-		]
-	}
+    "type": "data",
+    "displays": [2],
+    "message": {
+        "type": "sequence",
+        "data": [
+            {
+                "type": "bitmap",
+                "data": {
+                    "duration": 5.0,
+                    "align": "right",
+                    "bitmap": [
+                        [0, 1, 0, 1, 1, 1, 0, 1, ...],
+                        [1, 1, 1, 0, 1, 1, 0, 0, ...],
+                        ...
+                    ]
+                }
+            },
+            {
+                "type": "text",
+                "data": {
+                    "duration": 3.5,
+                    "align": null,
+                    "font": "FreeSans",
+                    "size": 11,
+                    "text": "@img:<sun.png> What a nice day!"
+                }
+            }
+        ]
+    }
 }
 ```
 
 Set a text on display 0 that looks like a line number and destination on a train by blending two messages together:
 ```json
 {
-	"type": "data",
-	"displays": [0],
-	"message": {
-		"type": "text",
-		"data": {
-			"align": "left",
-			"font": "Arial Bold",
-			"size": 11,
-			"text": "U5"
-		}
-	}
+    "type": "data",
+    "displays": [0],
+    "message": {
+        "type": "text",
+        "data": {
+            "align": "left",
+            "font": "Arial Bold",
+            "size": 11,
+            "text": "U5"
+        }
+    }
 }
 ```
 ```json
 {
-	"type": "data",
-	"displays": [0],
-	"message": {
-		"type": "text",
-		"data": {
-			"align": "center",
-			"font": "Arial",
-			"size": 11,
-			"blend_bitmap": true,
-			"text": "Hauptbahnhof"
-		}
-	}
+    "type": "data",
+    "displays": [0],
+    "message": {
+        "type": "text",
+        "data": {
+            "align": "center",
+            "font": "Arial",
+            "size": 11,
+            "blend_bitmap": true,
+            "text": "Hauptbahnhof"
+        }
+    }
 }
 ```

@@ -23,6 +23,7 @@ in the SERVER_PROTOCOL.md file.
 The server runs as two threads; one to listen for messages and one to control the displays.
 """
 
+import datetime
 import json
 import socket
 import threading
@@ -83,7 +84,8 @@ class MatrixServer(object):
             'scroll_gap': 5,
             'power_state': 'off',
             'blink_frequency': 0,
-            'stop_indicator': 'off'
+            'stop_indicator': 'off',
+            'scroll_step': 1
         },
         {
             'display_mode': 'static',
@@ -93,7 +95,8 @@ class MatrixServer(object):
             'scroll_gap': 5,
             'power_state': 'off',
             'blink_frequency': 0,
-            'stop_indicator': 'off'
+            'stop_indicator': 'off',
+            'scroll_step': 1
         },
         {
             'display_mode': 'static',
@@ -103,7 +106,8 @@ class MatrixServer(object):
             'scroll_gap': 5,
             'power_state': 'off',
             'blink_frequency': 0,
-            'stop_indicator': 'off'
+            'stop_indicator': 'off',
+            'scroll_step': 1
         },
         {
             'display_mode': 'static',
@@ -113,7 +117,8 @@ class MatrixServer(object):
             'scroll_gap': 5,
             'power_state': 'off',
             'blink_frequency': 0,
-            'stop_indicator': 'off'
+            'stop_indicator': 'off',
+            'scroll_step': 1
         }
     ]
     
@@ -240,7 +245,7 @@ class MatrixServer(object):
                             update_data['sequence_cur_pos'] = None
                             update_data['sequence_last_switched'] = None
                             if message['data'].get('parse_time_string', False):
-                                update_data['time_string_last_result'] = time.strftime(message['data']['text'])
+                                update_data['time_string_last_result'] = datetime.datetime.now().strftime(message['data']['text'])
                             else:
                                 update_data['time_string_last_result'] = None
                         elif message['type'] == 'bitmap':
@@ -264,7 +269,7 @@ class MatrixServer(object):
                         update_data['sequence_last_switched'] = now
                     
                     if actual_message['type'] == 'text' and actual_message['data'].get('parse_time_string', False):
-                        time_string_cur_result = time.strftime(actual_message['data']['text'])
+                        time_string_cur_result = datetime.datetime.now().strftime(actual_message['data']['text'])
                     
                     needs_refresh = update_data['message_changed'] or \
                                     actual_message['data'].get('parse_time_string', False) and \
@@ -447,3 +452,6 @@ class MatrixClient(object):
     
     def set_stop_indicator(self, displays, state):
         return self.send_control_message(displays, {'stop_indicator': state})
+    
+    def set_scroll_step(self, displays, step):
+        return self.send_control_message(displays, {'scroll_step': step})
