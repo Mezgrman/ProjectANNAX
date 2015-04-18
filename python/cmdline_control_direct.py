@@ -32,7 +32,7 @@ def main():
     parser = argparse.ArgumentParser(description = "Command-line control script for a matrix controller")
     parser.add_argument('-p', '--port', type = str, default = "/dev/ttyACM0",
         help = "The serial port to use for communication with the matrix controller (Default: /dev/ttyACM0)")
-    parser.add_argument('-b', '--baudrate', type = int, default = 115200,
+    parser.add_argument('-b', '--baudrate', type = int, default = 57600,
         help = "The baudrate to use for communication with the matrix controller (Default: 57600)")
     
     parser.add_argument('-i', '--image', type = str, default = None,
@@ -46,7 +46,7 @@ def main():
     parser.add_argument('-a', '--align', type = str, choices = ('left', 'center', 'right'), default = None,
         help = "How to align the text or image (useful only in static display mode)")
     
-    parser.add_argument('-dm', '--display-mode', type = str, choices = ('static', 'scroll'), default = None,
+    parser.add_argument('-dm', '--display-mode', type = str, choices = ('static', 'scroll', 'auto'), default = None,
         help = "How to display the text")
     parser.add_argument('-ss', '--scroll-speed', type = int, default = None,
         help = "How many frames should pass before advancing the scrolling text (slower values = faster scrolling)")
@@ -64,6 +64,8 @@ def main():
         help = "Enable or disable the stop indicator")
     parser.add_argument('-sst', '--scroll-step', type = int, default = None,
         help = "How many pixels a scrolling text should be shifted each frame (higher values = faster scrolling)")
+    parser.add_argument('-sbf', '--stop-indicator-blink-frequency', type = int, default = None,
+        help = "The frame count until the stop indicator blink state should be toggled")
 
     args = parser.parse_args()
     
@@ -81,6 +83,8 @@ def main():
             mode = 0
         elif args.display_mode == 'scroll':
             mode = 1
+        elif args.display_mode == 'auto':
+            mode = 2
         
         controller.set_display_mode(mode)
     
@@ -129,6 +133,9 @@ def main():
     
     if args.scroll_step is not None:
         controller.set_scroll_step(args.scroll_step)
+    
+    if args.stop_indicator_blink_frequency is not None:
+        controller.set_stop_indicator_blink_frequency(args.stop_indicator_blink_frequency)
 
 if __name__ == "__main__":
     main()

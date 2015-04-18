@@ -85,7 +85,8 @@ class MatrixServer(object):
             'power_state': 'off',
             'blink_frequency': 0,
             'stop_indicator': 'off',
-            'scroll_step': 1
+            'scroll_step': 1,
+            'stop_indicator_blink_frequency': 0
         },
         {
             'display_mode': 'static',
@@ -96,7 +97,8 @@ class MatrixServer(object):
             'power_state': 'off',
             'blink_frequency': 0,
             'stop_indicator': 'off',
-            'scroll_step': 1
+            'scroll_step': 1,
+            'stop_indicator_blink_frequency': 0
         },
         {
             'display_mode': 'static',
@@ -107,7 +109,8 @@ class MatrixServer(object):
             'power_state': 'off',
             'blink_frequency': 0,
             'stop_indicator': 'off',
-            'scroll_step': 1
+            'scroll_step': 1,
+            'stop_indicator_blink_frequency': 0
         },
         {
             'display_mode': 'static',
@@ -118,7 +121,8 @@ class MatrixServer(object):
             'power_state': 'off',
             'blink_frequency': 0,
             'stop_indicator': 'off',
-            'scroll_step': 1
+            'scroll_step': 1,
+            'stop_indicator_blink_frequency': 0
         }
     ]
     
@@ -229,7 +233,9 @@ class MatrixServer(object):
                     
                     # Process configuration changes
                     for key in update_data['config_keys_changed']:
-                        self.set_config(key, self.CURRENT_CONFIG[display][key])
+                        self.set_config(display, key, self.CURRENT_CONFIG[display][key])
+                        if key == 'power_state' and self.CURRENT_CONFIG[display][key] == 'on':
+                            update_data['message_changed'] = True
                     update_data['config_keys_changed'] = []
                     
                     if message is None or self.CURRENT_CONFIG[display]['power_state'] == 'off':
@@ -304,14 +310,14 @@ class MatrixServer(object):
                             # Reset config items that haven't been specifically set to their global values
                             reset_keys = [key for key in update_data['config_specific'] if key not in actual_message.get('config', {})]
                             for key in reset_keys:
-                                self.set_config(key, self.CURRENT_CONFIG[display][key])
+                                self.set_config(display, key, self.CURRENT_CONFIG[display][key])
                                 update_data['config_specific'].pop(key, None)
                             
                             # Set message-specific config
                             for key, value in actual_message.get('config', {}).items():
                                 if update_data['config_specific'].get(key) == value:
                                     continue
-                                self.set_config(key, value)
+                                self.set_config(display, key, value)
                                 update_data['config_specific'][key] = value
                     update_data['message_changed'] = False
             except KeyboardInterrupt:
@@ -349,10 +355,11 @@ class MatrixServer(object):
         self.graphics.send_long_bitmap(resulting_bitmap)
         print("ok")
     
-    def set_config(self, key, value):
+    def set_config(self, display, key, value):
         print("set_config", key, value, )
         try:
             func = getattr(self.controller, "set_%s" % key)
+            self.select_display(display)
             func(value)
             print("ok")
         except:

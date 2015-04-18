@@ -43,16 +43,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define PIN_DATA 13
 #define PIN_SRCLK 11
 #define PIN_ORCLK 12
-#define PIN_STOP_INDICATOR 14 // Analog In 0*/
+#define PIN_STOP_INDICATOR 14 // Analog In 0
 
 // The baudrate to use for the serial port
-#define BAUDRATE 115200
+#define BAUDRATE 57600
 
 // The number of LED matrix modules connected to the controller (= The number of columns divided by 8)
 #define NUM_BLOCKS 15
 
 // The maximum number of blocks that a message may consist of
-#define MAX_BLOCK_COUNT 150
+#define MAX_BLOCK_COUNT 100
 
 // The number of microseconds that should be waited for bitmap data until a timeout error is returned
 #define BITMAP_READ_TIMEOUT 1000000
@@ -78,6 +78,7 @@ byte curDispData[MAX_BLOCK_COUNT + NUM_BLOCKS][8]; // + NUM_BLOCKS as a backup s
 
 int curScrollFrame = 0;
 int curBlinkFrame = 0;
+int curStopIndBlinkFrame = 0;
 int curDispDataBlockCount = NUM_BLOCKS;
 int curDispMode = DISP_MODE_AUTO;
 int actualDispMode = DISP_MODE_STATIC;
@@ -87,9 +88,11 @@ int curScrollStep = 1;
 int curScrollMode = SCROLL_MODE_REPEAT_ON_DISAPPEARANCE;
 int curScrollGap = 5;
 int scrollWidth = NUM_BLOCKS;
-int curScrollPos = NUM_BLOCKS * 8 * 8;
+int curScrollPos = NUM_BLOCKS * 8;
 int curBlinkFrequency = -1;
+int curStopIndBlinkFrequency = -1;
 bool curBlinkState = true;
+bool curStopIndBlinkState = true;
 bool isOn = false;
 bool wasOn = false;
 bool stopIndicatorOn = false;
@@ -98,15 +101,16 @@ void clearDisplayData() {
   memset(curDispData, 0, sizeof curDispData);
 }
 
-void writeAllLow() {
-  digitalWrite(PIN_ROW_A, LOW);
-  digitalWrite(PIN_ROW_B, LOW);
-  digitalWrite(PIN_ROW_C, LOW);
-  digitalWrite(PIN_ROW_D, LOW);
-  digitalWrite(PIN_ROW_E, LOW);
-  digitalWrite(PIN_ROW_F, LOW);
-  digitalWrite(PIN_ROW_G, LOW);
-  digitalWrite(PIN_ROW_H, LOW);
+void writeAllOff() {
+  // Row pins have inverse logic due to p-channel FETs
+  digitalWrite(PIN_ROW_A, HIGH);
+  digitalWrite(PIN_ROW_B, HIGH);
+  digitalWrite(PIN_ROW_C, HIGH);
+  digitalWrite(PIN_ROW_D, HIGH);
+  digitalWrite(PIN_ROW_E, HIGH);
+  digitalWrite(PIN_ROW_F, HIGH);
+  digitalWrite(PIN_ROW_G, HIGH);
+  digitalWrite(PIN_ROW_H, HIGH);
   digitalWrite(PIN_OUTPUT_DISABLE, LOW);
   digitalWrite(PIN_DATA, LOW);
   digitalWrite(PIN_SRCLK, LOW);
@@ -205,6 +209,7 @@ void doSerialCommunication() {
     <0xA7> - Set blink frequency
     <0xA8> - Enable / disable stop indicator
     <0xA9> - Set the scroll step (number of pixels to be shifted each frame)
+    <0xAA> - Set stop indicator blink frequency
   
   <0xCC> - Intermediate byte
   
@@ -286,6 +291,10 @@ void doSerialCommunication() {
       
       case 0xA9:
         // Set scroll step
+        break;
+      
+      case 0xAA:
+        // Set stop indicator blink frequency
         break;
       
       default:
@@ -585,6 +594,28 @@ void doSerialCommunication() {
         }
         curScrollStep = valueByte;
         break;
+      
+      case 0xAA:
+        // Set stop indicator blink frequency
+        valueByte = Serial.read();
+        // Check value
+        if(valueByte < 0x00 || valueByte > 0xFF) {
+          // Error 6: Invalid value for selected option
+          clearSerialBuffer();
+          Serial.write(0xE6);
+          return;
+        }
+        
+        if(valueByte == 0x00) {
+          curStopIndBlinkFrequency = -1;
+          curStopIndBlinkState = true;
+          curStopIndBlinkFrame = 0;
+          digitalWrite(PIN_STOP_INDICATOR, stopIndicatorOn);
+        } else {
+          curStopIndBlinkFrequency = valueByte;
+        }
+        
+        break;
     }
     
     // Serial communication successful
@@ -603,27 +634,15 @@ void writeArrayStatic(byte array[][8]) {
       }
     }
     
-    digitalWrite(getPinForRow(row - 1), LOW);
-    
+    digitalWrite(getPinForRow(row - 1), HIGH);
     digitalWrite(PIN_ORCLK, HIGH);
     digitalWrite(PIN_ORCLK, LOW);
+    digitalWrite(getPinForRow(row), LOW);
     
-    doSerialCommunication();
-    
-    digitalWrite(getPinForRow(row), HIGH);
-  }
-  
-  if(curBlinkFrequency > 0) {
-    curBlinkFrame++;
-    if(curBlinkFrame >= curBlinkFrequency) {
-      curBlinkFrame = 0;
-      curBlinkState = !curBlinkState;
-      digitalWrite(PIN_OUTPUT_DISABLE, curBlinkState);
-    }
   }
 }
 
-void writeArrayScrolling(byte array[][8], int interval = 1, int scrollDirection = SCROLL_LEFT) {
+void writeArrayScrolling(byte array[][8], int interval = 1, int scrollDirection = SCROLL_LEFT, int scrollStep = 1) {
   // interval is the number of times a frame should be written until it is scrolled
    
   for(int row = 0; row < 8; row++) {
@@ -648,14 +667,10 @@ void writeArrayScrolling(byte array[][8], int interval = 1, int scrollDirection 
       }
     }
     
-    digitalWrite(getPinForRow(row - 1), LOW);
-    
+    digitalWrite(getPinForRow(row - 1), HIGH);
     digitalWrite(PIN_ORCLK, HIGH);
     digitalWrite(PIN_ORCLK, LOW);
-    
-    doSerialCommunication();
-    
-    digitalWrite(getPinForRow(row), HIGH);
+    digitalWrite(getPinForRow(row), LOW);
   }
   
   curScrollFrame++;
@@ -663,18 +678,9 @@ void writeArrayScrolling(byte array[][8], int interval = 1, int scrollDirection 
     curScrollFrame = 0;
     
     if(scrollDirection == SCROLL_RIGHT) {
-      modifyValue(&curScrollPos, curScrollStep, 0, scrollWidth * 8);
+      modifyValue(&curScrollPos, scrollStep, 0, scrollWidth * 8);
     } else if(scrollDirection == SCROLL_LEFT) {
-      modifyValue(&curScrollPos, -curScrollStep, 0, scrollWidth * 8);
-    }
-  }
-  
-  if(curBlinkFrequency > 0) {
-    curBlinkFrame++;
-    if(curBlinkFrame >= curBlinkFrequency) {
-      curBlinkFrame = 0;
-      curBlinkState = !curBlinkState;
-      digitalWrite(PIN_OUTPUT_DISABLE, curBlinkState);
+      modifyValue(&curScrollPos, -scrollStep, 0, scrollWidth * 8);
     }
   }
 }
@@ -696,7 +702,7 @@ void setup() {
   pinMode(PIN_ORCLK, OUTPUT);
   pinMode(PIN_STOP_INDICATOR, OUTPUT);
   
-  writeAllLow();
+  writeAllOff();
   setStopIndicator(stopIndicatorOn);
   
   Serial.begin(BAUDRATE);
@@ -706,7 +712,7 @@ void loop() {
   if(!wasOn && isOn) {
     wasOn = isOn;
   } else if(wasOn && !isOn) {
-    writeAllLow();
+    writeAllOff();
     wasOn = isOn;
   }
   
@@ -714,10 +720,29 @@ void loop() {
     if(actualDispMode == DISP_MODE_STATIC) {
       writeArrayStatic(curDispData);
     } else if(actualDispMode == DISP_MODE_SCROLL) {
-      writeArrayScrolling(curDispData, curScrollSpeed, curScrollDir);
+      writeArrayScrolling(curDispData, curScrollSpeed, curScrollDir, curScrollStep);
+    }
+    
+    if(curBlinkFrequency > 0) {
+      curBlinkFrame++;
+      if(curBlinkFrame >= curBlinkFrequency) {
+        curBlinkFrame = 0;
+        curBlinkState = !curBlinkState;
+        digitalWrite(PIN_OUTPUT_DISABLE, curBlinkState);
+      }
     }
   } else {
-    doSerialCommunication();
     delay(25);
   }
+  
+  if(stopIndicatorOn && curStopIndBlinkFrequency > 0) {
+    curStopIndBlinkFrame++;
+    if(curStopIndBlinkFrame >= curStopIndBlinkFrequency) {
+      curStopIndBlinkFrame = 0;
+      curStopIndBlinkState = !curStopIndBlinkState;
+      digitalWrite(PIN_STOP_INDICATOR, stopIndicatorOn && curStopIndBlinkState);
+    }
+  }
+  
+  doSerialCommunication();
 }

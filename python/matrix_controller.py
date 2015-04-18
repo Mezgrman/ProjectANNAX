@@ -53,12 +53,13 @@ class MatrixError(Exception):
         return "%i: %s" % (self.code, self.description)
 
 class MatrixController(object):
-    def __init__(self, port, baudrate = 115200, num_blocks = 15, max_tries = 10, retry_delay = 0.25, serial_buffer_size = 256):
+    def __init__(self, port, baudrate = 57600, num_blocks = 15, max_tries = 10, retry_delay = 0.25, serial_buffer_size = 256, debug = False):
         self.port = serial.serial_for_url(port, baudrate = baudrate)
         self.num_blocks = num_blocks
         self.max_tries = max_tries
         self.retry_delay = retry_delay
         self.serial_buffer_size = serial_buffer_size
+        self.debug = debug
     
     def send_raw_datagram(self, datagram):
         num_tries = 0
@@ -71,17 +72,20 @@ class MatrixController(object):
             pos = 0
             while pos < len(datagram):
                 self.port.write(datagram[pos:pos + chunk_size])
-                print("[%i:%i]" % (pos, pos + chunk_size), " ".join([hex(byte)[2:].upper().rjust(2, "0") for byte in datagram[pos:pos + chunk_size]]))
+                if self.debug:
+                    print("[%i:%i]" % (pos, pos + chunk_size), " ".join([hex(byte)[2:].upper().rjust(2, "0") for byte in datagram[pos:pos + chunk_size]]))
                 pos += chunk_size
                 if pos < len(datagram):
                     time.sleep(0.05)
             
             time.sleep(0.1)
             queue = self.port.read(self.port.inWaiting())
-            print(" ".join([hex(byte)[2:].upper().rjust(2, "0") for byte in queue]))
+            if self.debug:
+                print(" ".join([hex(byte)[2:].upper().rjust(2, "0") for byte in queue]))
             if queue:
                 response = queue[0]
-                print(hex(response).upper())
+                if self.debug:
+                    print(hex(response).upper())
                 success = response == 0xFF
             else:
                 response = -1
@@ -195,3 +199,6 @@ class MatrixController(object):
     
     def set_scroll_step(self, step):
         return self.set_parameter(9, step)
+    
+    def set_stop_indicator_blink_frequency(self, frequency):
+        return self.set_parameter(10, frequency)
