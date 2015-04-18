@@ -23,8 +23,6 @@ This file contains the classes needed to address the matrix controller board in 
 import serial
 import time
 
-from PIL import Image
-
 class MatrixError(Exception):
     ERR_CODES = {
         -1: "Unknown error",

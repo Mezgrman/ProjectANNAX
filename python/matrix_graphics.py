@@ -24,7 +24,12 @@ the pure matrix controller functions.
 import re
 import subprocess
 
-from PIL import Image, ImageDraw, ImageFont
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    HAVE_PIL = False
+else:
+    HAVE_PIL = True
 
 # A few pre-compiled bitmaps with various patterns
 BITMAP_CHECKER = [
@@ -73,6 +78,9 @@ BITMAP_EMPTY = [
 
 class MatrixGraphics(object):
     def __init__(self, controller):
+        if not HAVE_PIL:
+            return
+        
         self.controller = controller
         self.font_list = {}
         self.load_fonts()
