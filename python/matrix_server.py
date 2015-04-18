@@ -36,18 +36,10 @@ def receive_message(sock):
     # Receive and parse an incoming message (prefixed with its length)
     try:
         length = int(sock.recv(5))
-        
-        raw_data = b""
-        read_length = 0
-        while read_length < length:
-            part = sock.recv(1024)
-            raw_data += part
-            read_length += len(part)
-        
+        raw_data = sock.recv(length)
         message = json.loads(raw_data.decode('utf-8'))
     except:
         raise
-        #return None
     return message
 
 def send_message(sock, data):
@@ -56,6 +48,16 @@ def send_message(sock, data):
     length = len(raw_data)
     message = "%05i%s" % (length, raw_data)
     sock.sendall(message.encode('utf-8'))
+
+def discard_message(sock):
+    sock.setblocking(False)
+    try:
+        while True:
+            sock.recv(1024)
+    except socket.error:
+        pass
+    finally:
+        sock.setblocking(True)
 
 class MatrixServer(object):
     # This stores the actual bitmap that is displayed at the moment. Written exclusively by the display thread.
@@ -162,10 +164,11 @@ class MatrixServer(object):
         }
     ]
     
-    def __init__(self, controller, port = 1810):
+    def __init__(self, controller, port = 1810, allowed_ip_match = None):
         self.running = False
         self.controller = controller
         self.port = port
+        self.allowed_ip_match = allowed_ip_match
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.graphics = MatrixGraphics(controller)
         self.message_thread = threading.Thread(target = self.network_listen)
@@ -207,7 +210,13 @@ class MatrixServer(object):
                 try:
                     # Wait for someone to connect
                     conn, addr = self.socket.accept()
-                    print("Accepted connection from %s on port %i" % addr)
+                    ip, port = addr
+                    if self.allowed_ip_match is not None and not ip.startswith(self.allowed_ip_match):
+                        print("Discarding message from %s on port %i" % addr)
+                        discard_message(conn)
+                        continue
+                    
+                    print("Receiving message from %s on port %i" % addr)
                     # Receive the message
                     message = receive_message(conn)
                     if message is None:
@@ -331,7 +340,7 @@ class MatrixServer(object):
     
     def process_message(self, message):
         success = True
-        if message.get('type') not in ('control', 'data'):
+        if message.get('type') not in ('control', 'data', 'query-config', 'query-message', 'query-bitmap'):
             return {'success': False, 'error': "'%s' is not a valid message type" % message.get('type')}
         
         if message['type'] == 'control':
@@ -340,11 +349,44 @@ class MatrixServer(object):
                     if key in self.CURRENT_CONFIG[display]:
                         self.CURRENT_CONFIG[display][key] = value
                         self.UPDATE_DATA[display]['config_keys_changed'].append(key)
+            return {'success': success}
         elif message['type'] == 'data':
             for display in message.get('displays', []):
                 self.CURRENT_MESSAGE[display] = message['message']
                 self.UPDATE_DATA[display]['message_changed'] = True
-        return {'success': success}
+            return {'success': success}
+        elif message['type'] == 'query-config':
+            displays = message.get('displays')
+            keys = message.get('keys')
+            if displays is None:
+                displays = (0, 1, 2, 3)
+            
+            reply = {}
+            for display in displays:
+                config = self.CURRENT_CONFIG[display]
+                reply_config = {}
+                for key, value in config.items():
+                    if keys is None or key in keys:
+                        reply_config[key] = value
+                reply[display] = reply_config
+            return reply
+        elif message['type'] == 'query-message':
+            displays = message.get('displays')
+            if displays is None:
+                displays = (0, 1, 2, 3)
+            
+            reply = dict(((display, self.CURRENT_MESSAGE[display]) for display in displays))
+            return reply
+        elif message['type'] == 'query-bitmap':
+            displays = message.get('displays')
+            if displays is None:
+                displays = (0, 1, 2, 3)
+            
+            reply = dict(((display, self.CURRENT_BITMAP[display]) for display in displays))
+            return reply
+        
+        # This should never be called
+        return {'success': False}
     
     def set_bitmap(self, display, bitmap, blend_bitmap = False, align = None):
         print("set_bitmap", )
@@ -373,7 +415,7 @@ class MatrixServer(object):
 
 
 class MatrixClient(object):
-    def __init__(self, host, port = 4711, timeout = 3.0):
+    def __init__(self, host, port = 1810, timeout = 3.0):
         self.host = host
         self.port = port
         self.timeout = timeout
@@ -397,6 +439,15 @@ class MatrixClient(object):
     
     def build_control_message(self, displays, message):
         return {'type': 'control', 'displays': displays, 'message': message}
+    
+    def build_config_query_message(self, displays, keys):
+        return {'type': 'query-config', 'displays': displays, 'keys': keys}
+    
+    def build_message_query_message(self, displays):
+        return {'type': 'query-message', 'displays': displays}
+    
+    def build_bitmap_query_message(self, displays):
+        return {'type': 'query-bitmap', 'displays': displays}
     
     def build_bitmap_message(self, bitmap, align = None, blend_bitmap = False, config = {}, duration = None):
         message = {'type': 'bitmap', 'config': config, 'data': {'align': align, 'blend_bitmap': blend_bitmap, 'bitmap': bitmap}}
@@ -427,6 +478,15 @@ class MatrixClient(object):
     def send_control_message(self, displays, message):
         return self.send_raw_message(self.build_control_message(displays, message))
     
+    def send_config_query_message(self, displays, keys):
+        return self.send_raw_message(self.build_config_query_message(displays, keys))
+    
+    def send_message_query_message(self, displays):
+        return self.send_raw_message(self.build_message_query_message(displays))
+    
+    def send_bitmap_query_message(self, displays):
+        return self.send_raw_message(self.build_bitmap_query_message(displays))
+    
     def send_bitmap_message(self, displays, bitmap, align = None, blend_bitmap = False, config = {}):
         message = self.build_bitmap_message(bitmap, align, blend_bitmap, config)
         return self.send_data_message(displays, message)
@@ -438,6 +498,18 @@ class MatrixClient(object):
     def send_sequence_message(self, displays, sequence, duration = None):
         message = self.build_sequence_message(sequence, duration)
         return self.send_data_message(displays, message)
+    
+    def get_config(self, displays = None, keys = None):
+        return self.send_config_query_message(displays, keys)
+    
+    def get_message(self, displays = None):
+        return self.send_message_query_message(displays)
+    
+    def get_bitmap(self, displays = None):
+        return self.send_bitmap_query_message(displays)
+    
+    def set_config(self, displays, config):
+        return self.send_control_message(displays, config)
     
     def set_display_mode(self, displays, mode):
         return self.send_control_message(displays, {'display_mode': mode})
