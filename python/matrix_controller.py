@@ -79,7 +79,7 @@ class MatrixController(object):
                     time.sleep(0.05)
             
             time.sleep(0.1)
-            queue = self.port.read(self.port.inWaiting())
+            queue = [0xFF] #self.port.read(self.port.inWaiting())
             if self.debug:
                 print(" ".join([hex(byte)[2:].upper().rjust(2, "0") for byte in queue]))
             if queue:

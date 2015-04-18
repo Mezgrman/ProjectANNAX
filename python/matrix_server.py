@@ -162,7 +162,7 @@ class MatrixServer(object):
         }
     ]
     
-    def __init__(self, controller, port = 4711):
+    def __init__(self, controller, port = 1810):
         self.running = False
         self.controller = controller
         self.port = port
@@ -171,13 +171,13 @@ class MatrixServer(object):
         self.message_thread = threading.Thread(target = self.network_listen)
     
     def run(self):
-        print("running")
+        print("Starting server...")
         self.running = True
         self.message_thread.start()
         self.control_loop()
     
     def stop(self):
-        print("stopping")
+        print("Stopping server...")
         self.running = False
     
     def select_display(self, display):
@@ -198,6 +198,7 @@ class MatrixServer(object):
     def network_listen(self):
         # Open the network socket and listen
         self.socket.bind(('', self.port))
+        self.socket.settimeout(5.0)
         print("Listening on port %i" % self.port)
         self.socket.listen(1)
         
@@ -215,6 +216,8 @@ class MatrixServer(object):
                     reply = self.process_message(message)
                     if reply:
                         send_message(conn, reply)
+                except socket.timeout:
+                    pass
                 except KeyboardInterrupt:
                     raise
                 except:
@@ -320,11 +323,11 @@ class MatrixServer(object):
                                 self.set_config(display, key, value)
                                 update_data['config_specific'][key] = value
                     update_data['message_changed'] = False
+                time.sleep(0.25)
             except KeyboardInterrupt:
                 self.stop()
             except:
                 traceback.print_exc()
-            time.sleep(0.25)
     
     def process_message(self, message):
         success = True
@@ -462,3 +465,6 @@ class MatrixClient(object):
     
     def set_scroll_step(self, displays, step):
         return self.send_control_message(displays, {'scroll_step': step})
+    
+    def set_stop_indicator_blink_frequency(self, displays, frequency):
+        return self.send_control_message(displays, {'stop_indicator_blink_frequency': frequency})

@@ -732,7 +732,7 @@ void loop() {
       }
     }
   } else {
-    delay(25);
+    delay(15);
   }
   
   if(stopIndicatorOn && curStopIndBlinkFrequency > 0) {
