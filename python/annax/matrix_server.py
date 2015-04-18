@@ -389,7 +389,6 @@ class MatrixServer(object):
         return {'success': False}
     
     def set_bitmap(self, display, bitmap, blend_bitmap = False, align = None):
-        print("set_bitmap", )
         new_bitmap = self.graphics.align_long_bitmap(bitmap, align)
         if blend_bitmap:
             resulting_bitmap = self.graphics.blend_long_bitmaps(self.CURRENT_BITMAP[display], new_bitmap)
@@ -398,15 +397,12 @@ class MatrixServer(object):
         self.CURRENT_BITMAP[display] = resulting_bitmap
         self.select_display(display)
         self.graphics.send_long_bitmap(resulting_bitmap)
-        print("ok")
     
     def set_config(self, display, key, value):
-        print("set_config", key, value, )
         try:
             func = getattr(self.controller, "set_%s" % key)
             self.select_display(display)
             func(value)
-            print("ok")
         except:
             traceback.print_exc()
             return False
