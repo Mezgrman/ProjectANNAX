@@ -30,7 +30,7 @@ import threading
 import time
 import traceback
 
-from matrix_graphics import MatrixGraphics
+from .matrix_graphics import MatrixGraphics
 
 def receive_message(sock):
     # Receive and parse an incoming message (prefixed with its length)
