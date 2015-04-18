@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
 
-from matrix_server import MatrixClient
+from annax import MatrixClient
 
 c = MatrixClient("localhost")

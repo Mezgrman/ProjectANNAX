@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-from matrix_controller import MatrixController
-from matrix_server import MatrixServer
+from annax import MatrixController, MatrixServer
 
 def main():
     parser = argparse.ArgumentParser(description = "Command-line control script for a matrix controller")

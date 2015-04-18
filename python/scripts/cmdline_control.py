@@ -26,9 +26,7 @@ import serial
 import sys
 import time
 
-from matrix_controller import MatrixController, MatrixError
-from matrix_graphics import MatrixGraphics
-from matrix_server import MatrixClient
+from annax import MatrixController, MatrixError, MatrixGraphics, MatrixClient
 
 def main():
     parser = argparse.ArgumentParser(description = "Command-line control script for a matrix controller")
