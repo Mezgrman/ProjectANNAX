@@ -7,8 +7,8 @@ def main():
     parser = argparse.ArgumentParser(description = "Command-line control script for a matrix controller")
     parser.add_argument('-sp', '--serial-port', type = str, required = True,
         help = "The serial port to use for communication with the matrix controller")
-    parser.add_argument('-b', '--baudrate', type = int, default = 57600,
-        help = "The baudrate to use for communication with the matrix controller (Default: 57600)")
+    parser.add_argument('-b', '--baudrate', type = int, default = 115200,
+        help = "The baudrate to use for communication with the matrix controller (Default: 115200)")
     parser.add_argument('-p', '--port', type = int, default = 1810,
         help = "The port for the server to listen on (Default: 1810)")
     parser.add_argument('-d', '--debug', action = 'store_true',

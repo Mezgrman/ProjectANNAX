@@ -25,14 +25,12 @@ import time
 
 class MatrixError(Exception):
     ERR_CODES = {
-        -1: "Unknown error",
+        -225: "Controller is not responding",
         0: "Invalid action byte",
-        1: "Invalid intermediate byte #1",
-        2: "Invalid block count",
-        3: "Invalid intermediate byte #2",
-        4: "Timeout while receiving bitmap data",
-        5: "Invalid bitmap data",
-        6: "Invalid value for selected option",
+        1: "Invalid block count",
+        2: "Timeout while receiving serial data",
+        3: "Invalid bitmap data",
+        4: "Invalid value for selected option",
         31: "Serial communication successful" # Just in case, this equals the response 0xFF indicating success
     }
     
@@ -51,13 +49,14 @@ class MatrixError(Exception):
         return "%i: %s" % (self.code, self.description)
 
 class MatrixController(object):
-    def __init__(self, port, baudrate = 57600, num_blocks = 15, max_tries = 10, retry_delay = 0.25, serial_buffer_size = 256, debug = False):
-        self.port = serial.serial_for_url(port, baudrate = baudrate)
+    def __init__(self, port, baudrate = 115200, timeout = 1.2, num_blocks = 15, max_tries = 5, retry_delay = 0.25, serial_buffer_size = 256, debug = False):
+        self.port = serial.serial_for_url(port, baudrate = baudrate, timeout = timeout)
         self.num_blocks = num_blocks
         self.max_tries = max_tries
         self.retry_delay = retry_delay
         self.serial_buffer_size = serial_buffer_size
         self.debug = debug
+        self.pending_messages = []
     
     def send_raw_datagram(self, datagram):
         num_tries = 0
@@ -66,7 +65,7 @@ class MatrixController(object):
             if num_tries > 0:
                 time.sleep(self.retry_delay)
             
-            chunk_size = int(self.serial_buffer_size / 2)
+            chunk_size = 9999999#int(self.serial_buffer_size / 2)
             pos = 0
             while pos < len(datagram):
                 self.port.write(datagram[pos:pos + chunk_size])
@@ -74,23 +73,17 @@ class MatrixController(object):
                     print("[%i:%i]" % (pos, pos + chunk_size), " ".join([hex(byte)[2:].upper().rjust(2, "0") for byte in datagram[pos:pos + chunk_size]]))
                 pos += chunk_size
                 if pos < len(datagram):
-                    time.sleep(0.05)
+                    time.sleep(0)#.05)
             
-            time.sleep(0.1)
-            queue = [0xFF] #self.port.read(self.port.inWaiting())
-            if self.debug:
-                print(" ".join([hex(byte)[2:].upper().rjust(2, "0") for byte in queue]))
-            if queue:
-                response = queue[0]
+            response = self.port.read(1)
+            if response:
+                response = response[0]
                 if self.debug:
-                    print(hex(response).upper())
+                    print("Response: " + hex(response).upper())
                 success = response == 0xFF
             else:
                 response = -1
                 success = False
-            
-            if response == 0xE6:
-                break
             
             num_tries += 1
         
@@ -99,19 +92,40 @@ class MatrixController(object):
         
         return True
     
-    def send_bitmap(self, bitmap):
+    def clear_queue(self):
+        self.pending_messages = []
+    
+    def commit(self):
+        # Send all pending messages to the controller
+        if not self.pending_messages:
+            return False
+        
         datagram = bytearray()
         datagram.append(0xFF)
+        datagram.append(len(self.pending_messages))
+        
+        for message in self.pending_messages:
+            datagram += message
+        
+        try:
+            self.send_raw_datagram(datagram)
+        except:
+            raise
+        else:
+            self.clear_queue()
+        
+        return True
+    
+    def send_bitmap(self, bitmap):
+        datagram = bytearray()
         datagram.append(0xA0)
-        datagram.append(0xCC)
         datagram.append(len(bitmap))
-        datagram.append(0xCC)
         
         for block in bitmap:
             for byte in block:
                 datagram.append(byte)
         
-        return self.send_raw_datagram(datagram)
+        self.pending_messages.append(datagram)
     
     def set_parameter(self, code, value):
         """
@@ -122,12 +136,9 @@ class MatrixController(object):
         assert 0x00 <= value <= 0xFF
         
         datagram = bytearray()
-        datagram.append(0xFF)
         datagram.append(0xA0 + code)
-        datagram.append(0xCC)
         datagram.append(value)
-        
-        return self.send_raw_datagram(datagram)
+        self.pending_messages.append(datagram)
     
     def set_display_mode(self, mode):
         """
@@ -176,8 +187,8 @@ class MatrixController(object):
         1: On
         """
         
-        if not isinstance(state, int):
-            state = ('off', 'on').index(state)
+        if isinstance(state, bool):
+            state = int(state)
         
         return self.set_parameter(6, state)
     
@@ -190,8 +201,8 @@ class MatrixController(object):
         1: On
         """
         
-        if not isinstance(state, int):
-            state = ('off', 'on').index(state)
+        if isinstance(state, bool):
+            state = int(state)
         
         return self.set_parameter(8, state)
     

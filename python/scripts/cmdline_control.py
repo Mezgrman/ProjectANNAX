@@ -22,19 +22,19 @@ Sequence messages are not supported from the command line. (It's just too bloody
 """
 
 import argparse
-import serial
-import sys
-import time
 
 from annax import MatrixController, MatrixError, MatrixGraphics, MatrixClient
 
 def main():
     parser = argparse.ArgumentParser(description = "Command-line control script for a matrix controller")
     
+    parser.add_argument('-debug', '--debug', action = 'store_true',
+        help = "Print debug output in direct mode")
+    
     parser.add_argument('-sp', '--serial-port', type = str,
         help = "The serial port to use for communication with the matrix controller (in direct mode)")
-    parser.add_argument('-b', '--baudrate', type = int, default = 57600,
-        help = "The baudrate to use for communication with the matrix controller (in direct mode) (Default: 57600)")
+    parser.add_argument('-b', '--baudrate', type = int, default = 115200,
+        help = "The baudrate to use for communication with the matrix controller (in direct mode) (Default: 115200)")
     
     parser.add_argument('-s', '--server', type = str,
         help = "The server host to use for communication with the matrix controller (in server mode)")
@@ -94,7 +94,7 @@ def main():
         raise ValueError("No mode selected")
     
     if MODE == 'direct':
-        controller = MatrixController(args.serial_port, baudrate = args.baudrate)
+        controller = MatrixController(args.serial_port, baudrate = args.baudrate, debug = args.debug)
         
         if args.image is not None:
             graphics = MatrixGraphics(controller)
@@ -104,63 +104,36 @@ def main():
             graphics.send_text(args.text, font = args.font, size = args.font_size, align = args.align)
         
         if args.display_mode is not None:
-            if args.display_mode == 'static':
-                mode = 0
-            elif args.display_mode == 'scroll':
-                mode = 1
-            elif args.display_mode == 'auto':
-                mode = 2
-            
-            controller.set_display_mode(mode)
+            controller.set_display_mode(args.display_mode)
         
         if args.scroll_speed is not None:
             controller.set_scroll_speed(args.scroll_speed)
         
         if args.scroll_direction is not None:
-            if args.scroll_direction == 'left':
-                direction = 0
-            elif args.scroll_direction == 'right':
-                direction = 1
-            
-            controller.set_scroll_direction(direction)
+            controller.set_scroll_direction(args.scroll_direction)
         
         if args.scroll_mode is not None:
-            if args.scroll_mode == 'repeat-on-end':
-                mode = 0
-            elif args.scroll_mode == 'repeat-on-disappearance':
-                mode = 1
-            elif args.scroll_mode == 'repeat-after-gap':
-                mode = 2
-            
-            controller.set_scroll_mode(mode)
+            controller.set_scroll_mode(args.scroll_mode)
         
         if args.scroll_gap is not None:
             controller.set_scroll_gap(args.scroll_gap)
         
         if args.power_state is not None:
-            if args.power_state == 'off':
-                state = 0
-            elif args.power_state == 'on':
-                state = 1
-            
-            controller.set_power_state(state)
+            controller.set_power_state(args.power_state == 'on')
         
         if args.blink_frequency is not None:
             controller.set_blink_frequency(args.blink_frequency)
         
         if args.stop_indicator is not None:
-            if args.stop_indicator == 'off':
-                state = 0
-            elif args.stop_indicator == 'on':
-                state = 1
-            
-            controller.set_stop_indicator(state)
+            controller.set_stop_indicator(args.stop_indicator == 'on')
         
         if args.scroll_step is not None:
             controller.set_scroll_step(args.scroll_step)
         
         if args.stop_indicator_blink_frequency is not None:
             controller.set_stop_indicator_blink_frequency(args.stop_indicator_blink_frequency)
+        
+        controller.commit()
     elif MODE == 'server':
         client = MatrixClient(args.server, port = args.port)
         

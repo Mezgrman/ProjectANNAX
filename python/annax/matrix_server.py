@@ -31,12 +31,20 @@ import time
 import traceback
 
 from .matrix_graphics import MatrixGraphics
+from .matrix_controller import MatrixError
 
 def receive_message(sock):
     # Receive and parse an incoming message (prefixed with its length)
     try:
         length = int(sock.recv(5))
-        raw_data = sock.recv(length)
+        #print(length)
+        raw_data = bytearray()
+        l = 0
+        while l < length:
+            raw_data += sock.recv(1024)
+            l += 1024
+        #raw_data = sock.recv(length)
+        #print(raw_data)
         message = json.loads(raw_data.decode('utf-8'))
     except:
         raise
@@ -47,6 +55,7 @@ def send_message(sock, data):
     raw_data = json.dumps(data)
     length = len(raw_data)
     message = "%05i%s" % (length, raw_data)
+    #print(message.encode('utf-8'))
     sock.sendall(message.encode('utf-8'))
 
 def discard_message(sock):
@@ -79,50 +88,50 @@ class MatrixServer(object):
     # This stores the current controller settings for each display.
     CURRENT_CONFIG = [
         {
-            'display_mode': 'static',
+            'display_mode': 'auto',
             'scroll_speed': 1,
             'scroll_direction': 'left',
             'scroll_mode': 'repeat-on-disappearance',
             'scroll_gap': 5,
-            'power_state': 'off',
+            'power_state': False,
             'blink_frequency': 0,
-            'stop_indicator': 'off',
+            'stop_indicator': False,
             'scroll_step': 1,
             'stop_indicator_blink_frequency': 0
         },
         {
-            'display_mode': 'static',
+            'display_mode': 'auto',
             'scroll_speed': 1,
             'scroll_direction': 'left',
             'scroll_mode': 'repeat-on-disappearance',
             'scroll_gap': 5,
-            'power_state': 'off',
+            'power_state': False,
             'blink_frequency': 0,
-            'stop_indicator': 'off',
+            'stop_indicator': False,
             'scroll_step': 1,
             'stop_indicator_blink_frequency': 0
         },
         {
-            'display_mode': 'static',
+            'display_mode': 'auto',
             'scroll_speed': 1,
             'scroll_direction': 'left',
             'scroll_mode': 'repeat-on-disappearance',
             'scroll_gap': 5,
-            'power_state': 'off',
+            'power_state': False,
             'blink_frequency': 0,
-            'stop_indicator': 'off',
+            'stop_indicator': False,
             'scroll_step': 1,
             'stop_indicator_blink_frequency': 0
         },
         {
-            'display_mode': 'static',
+            'display_mode': 'auto',
             'scroll_speed': 1,
             'scroll_direction': 'left',
             'scroll_mode': 'repeat-on-disappearance',
             'scroll_gap': 5,
-            'power_state': 'off',
+            'power_state': False,
             'blink_frequency': 0,
-            'stop_indicator': 'off',
+            'stop_indicator': False,
             'scroll_step': 1,
             'stop_indicator_blink_frequency': 0
         }
@@ -186,14 +195,14 @@ class MatrixServer(object):
     def select_display(self, display):
         # Select a display using the multiplex chip
         if display == 0:
-            self.controller.port.setDTR(0)
+            self.controller.port.setDTR(1)
             self.controller.port.setRTS(0)
         elif display == 1:
             self.controller.port.setDTR(0)
-            self.controller.port.setRTS(1)
-        elif display == 2:
-            self.controller.port.setDTR(1)
             self.controller.port.setRTS(0)
+        elif display == 2:
+            self.controller.port.setDTR(0)
+            self.controller.port.setRTS(1)
         elif display == 3:
             self.controller.port.setDTR(1)
             self.controller.port.setRTS(1)
@@ -218,14 +227,23 @@ class MatrixServer(object):
                     
                     print("Receiving message from %s on port %i" % addr)
                     # Receive the message
-                    message = receive_message(conn)
-                    if message is None:
+                    messages = receive_message(conn)
+                    if messages is None:
                         # We received an invalid message, just discard it
                         continue
-                    reply = self.process_message(message)
+                    
+                    if type(messages) not in (list, tuple):
+                        messages = [messages]
+                    
+                    reply = {'success': True}
+                    for message in messages:
+                        reply = self.process_message(message)
+                        if not reply.get('success'):
+                            break
+                    
                     if reply:
                         send_message(conn, reply)
-                except socket.timeout:
+                except socket.timeout: # Nothing special, just renew the socket every few seconds
                     pass
                 except KeyboardInterrupt:
                     raise
@@ -246,11 +264,16 @@ class MatrixServer(object):
                     # Process configuration changes
                     for key in update_data['config_keys_changed']:
                         self.set_config(display, key, self.CURRENT_CONFIG[display][key])
-                        if key == 'power_state' and self.CURRENT_CONFIG[display][key] == 'on':
+                        if key == 'power_state' and self.CURRENT_CONFIG[display][key]:
                             update_data['message_changed'] = True
                     update_data['config_keys_changed'] = []
                     
-                    if message is None or self.CURRENT_CONFIG[display]['power_state'] == 'off':
+                    if message is None or not self.CURRENT_CONFIG[display]['power_state']:
+                        self.select_display(display)
+                        try:
+                            self.controller.commit()
+                        except MatrixError:
+                            self.controller.clear_queue()
                         time.sleep(0.25)
                         continue
                     
@@ -332,6 +355,12 @@ class MatrixServer(object):
                                 self.set_config(display, key, value)
                                 update_data['config_specific'][key] = value
                     update_data['message_changed'] = False
+                    
+                    self.select_display(display)
+                    try:
+                        self.controller.commit()
+                    except MatrixError:
+                        self.controller.clear_queue()
                 time.sleep(0.25)
             except KeyboardInterrupt:
                 self.stop()
@@ -340,21 +369,25 @@ class MatrixServer(object):
     
     def process_message(self, message):
         success = True
-        if message.get('type') not in ('control', 'data', 'query-config', 'query-message', 'query-bitmap'):
-            return {'success': False, 'error': "'%s' is not a valid message type" % message.get('type')}
+        error = None
         
         if message['type'] == 'control':
             for display in message.get('displays', []):
                 for key, value in message['message'].items():
                     if key in self.CURRENT_CONFIG[display]:
-                        self.CURRENT_CONFIG[display][key] = value
-                        self.UPDATE_DATA[display]['config_keys_changed'].append(key)
-            return {'success': success}
+                        if self.CURRENT_CONFIG[display][key] != value:
+                            self.CURRENT_CONFIG[display][key] = value
+                            self.UPDATE_DATA[display]['config_keys_changed'].append(key)
+                    else:
+                        success = False
+                        error = "Invalid configuration option: %s" % key
+                        break
+            return {'success': success, 'error': error}
         elif message['type'] == 'data':
             for display in message.get('displays', []):
                 self.CURRENT_MESSAGE[display] = message['message']
                 self.UPDATE_DATA[display]['message_changed'] = True
-            return {'success': success}
+            return {'success': success, 'error': error}
         elif message['type'] == 'query-config':
             displays = message.get('displays')
             keys = message.get('keys')
@@ -384,9 +417,13 @@ class MatrixServer(object):
             
             reply = dict(((display, self.CURRENT_BITMAP[display]) for display in displays))
             return reply
+        else:
+            success = False
+            error = "Invalid message type: %s" % message.get('type')
+            return {'success': success, 'error': error}
         
         # This should never be called
-        return {'success': False}
+        return {'success': success, 'error': error}
     
     def set_bitmap(self, display, bitmap, blend_bitmap = False, align = None):
         new_bitmap = self.graphics.align_long_bitmap(bitmap, align)
@@ -395,13 +432,11 @@ class MatrixServer(object):
         else:
             resulting_bitmap = new_bitmap
         self.CURRENT_BITMAP[display] = resulting_bitmap
-        self.select_display(display)
         self.graphics.send_long_bitmap(resulting_bitmap)
     
     def set_config(self, display, key, value):
         try:
             func = getattr(self.controller, "set_%s" % key)
-            self.select_display(display)
             func(value)
         except:
             traceback.print_exc()
@@ -415,6 +450,7 @@ class MatrixClient(object):
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.queue = []
     
     def send_raw_message(self, message, expect_reply = True):
         reply = None
@@ -429,6 +465,18 @@ class MatrixClient(object):
         finally:
             sock.close()
         return reply
+    
+    def clear_queue(self):
+        self.queue = []
+    
+    def commit(self):
+        if self.queue:
+            reply = self.send_raw_message(self.queue)
+            if reply.get('success'):
+                self.clear_queue()
+            return reply
+        else:
+            return False
     
     def build_data_message(self, displays, message):
         return {'type': 'data', 'displays': displays, 'message': message}
@@ -468,11 +516,11 @@ class MatrixClient(object):
                 message['duration'] = duration
         return {'type': 'sequence', 'data': sequence}
     
-    def send_data_message(self, displays, message):
-        return self.send_raw_message(self.build_data_message(displays, message))
+    def append_data_message(self, displays, message):
+        self.queue.append(self.build_data_message(displays, message))
     
-    def send_control_message(self, displays, message):
-        return self.send_raw_message(self.build_control_message(displays, message))
+    def append_control_message(self, displays, message):
+        self.queue.append(self.build_control_message(displays, message))
     
     def send_config_query_message(self, displays, keys):
         return self.send_raw_message(self.build_config_query_message(displays, keys))
@@ -483,17 +531,17 @@ class MatrixClient(object):
     def send_bitmap_query_message(self, displays):
         return self.send_raw_message(self.build_bitmap_query_message(displays))
     
-    def send_bitmap_message(self, displays, bitmap, align = None, blend_bitmap = False, config = {}):
+    def append_bitmap_message(self, displays, bitmap, align = None, blend_bitmap = False, config = {}):
         message = self.build_bitmap_message(bitmap, align, blend_bitmap, config)
-        return self.send_data_message(displays, message)
+        return self.append_data_message(displays, message)
     
-    def send_text_message(self, displays, text, font = "Arial", size = 11, align = None, parse_time_string = False, blend_bitmap = False, config = {}):
+    def append_text_message(self, displays, text, font = "Arial", size = 11, align = None, parse_time_string = False, blend_bitmap = False, config = {}):
         message = self.build_text_message(text, font, size, align, parse_time_string, blend_bitmap, config)
-        return self.send_data_message(displays, message)
+        return self.append_data_message(displays, message)
     
-    def send_sequence_message(self, displays, sequence, duration = None):
+    def append_sequence_message(self, displays, sequence, duration = None):
         message = self.build_sequence_message(sequence, duration)
-        return self.send_data_message(displays, message)
+        return self.append_data_message(displays, message)
     
     def get_config(self, displays = None, keys = None):
         return self.send_config_query_message(displays, keys)
@@ -505,34 +553,34 @@ class MatrixClient(object):
         return self.send_bitmap_query_message(displays)
     
     def set_config(self, displays, config):
-        return self.send_control_message(displays, config)
+        return self.append_control_message(displays, config)
     
     def set_display_mode(self, displays, mode):
-        return self.send_control_message(displays, {'display_mode': mode})
+        return self.append_control_message(displays, {'display_mode': mode})
     
     def set_scroll_speed(self, displays, speed):
-        return self.send_control_message(displays, {'scroll_speed': speed})
+        return self.append_control_message(displays, {'scroll_speed': speed})
     
     def set_scroll_direction(self, displays, direction):
-        return self.send_control_message(displays, {'scroll_direction': direction})
+        return self.append_control_message(displays, {'scroll_direction': direction})
     
     def set_scroll_mode(self, displays, mode):
-        return self.send_control_message(displays, {'scroll_mode': mode})
+        return self.append_control_message(displays, {'scroll_mode': mode})
     
     def set_scroll_gap(self, displays, gap):
-        return self.send_control_message(displays, {'scroll_gap': gap})
+        return self.append_control_message(displays, {'scroll_gap': gap})
     
     def set_power_state(self, displays, state):
-        return self.send_control_message(displays, {'power_state': state})
+        return self.append_control_message(displays, {'power_state': state})
     
     def set_blink_frequency(self, displays, frequency):
-        return self.send_control_message(displays, {'blink_frequency': frequency})
+        return self.append_control_message(displays, {'blink_frequency': frequency})
     
     def set_stop_indicator(self, displays, state):
-        return self.send_control_message(displays, {'stop_indicator': state})
+        return self.append_control_message(displays, {'stop_indicator': state})
     
     def set_scroll_step(self, displays, step):
-        return self.send_control_message(displays, {'scroll_step': step})
+        return self.append_control_message(displays, {'scroll_step': step})
     
     def set_stop_indicator_blink_frequency(self, displays, frequency):
-        return self.send_control_message(displays, {'stop_indicator_blink_frequency': frequency})
+        return self.append_control_message(displays, {'stop_indicator_blink_frequency': frequency})

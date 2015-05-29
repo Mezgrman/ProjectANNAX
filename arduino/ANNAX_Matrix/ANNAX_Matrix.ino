@@ -15,47 +15,32 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-// Pin configuration for UNO test board
-/*#define PIN_ROW_A 2
-#define PIN_ROW_B 3
-#define PIN_ROW_C 7
-#define PIN_ROW_D 4
-#define PIN_ROW_E 8
-#define PIN_ROW_F 11
-#define PIN_ROW_G 12
-#define PIN_ROW_H 13
-#define PIN_OUTPUT_DISABLE 10
-#define PIN_DATA 9
-#define PIN_SRCLK 6
-#define PIN_ORCLK 5
-#define PIN_STOP_INDICATOR 14 // Analog In 0*/
-
 // Pin configuration for NANO controller board
-#define PIN_ROW_A 7
-#define PIN_ROW_B 8
-#define PIN_ROW_C 5
-#define PIN_ROW_D 9
-#define PIN_ROW_E 6
-#define PIN_ROW_F 3
-#define PIN_ROW_G 2
-#define PIN_ROW_H 4
-#define PIN_OUTPUT_DISABLE 10
+#define PIN_ROW_A 5
+#define PIN_ROW_B 6
+#define PIN_ROW_C 10
+#define PIN_ROW_D 7
+#define PIN_ROW_E 9
+#define PIN_ROW_F 8
+#define PIN_ROW_G 12
+#define PIN_ROW_H 11
+#define PIN_OUTPUT_DISABLE 2
 #define PIN_DATA 13
-#define PIN_SRCLK 11
-#define PIN_ORCLK 12
+#define PIN_SRCLK 3
+#define PIN_ORCLK 4
 #define PIN_STOP_INDICATOR 14 // Analog In 0
 
 // The baudrate to use for the serial port
-#define BAUDRATE 57600
+#define BAUDRATE 115200
 
-// The number of LED matrix modules connected to the controller (= The number of columns divided by 8)
+// The number of 8x8 LED matrix modules connected to the controller (= The number of columns divided by 8)
 #define NUM_BLOCKS 15
 
 // The maximum number of blocks that a message may consist of
 #define MAX_BLOCK_COUNT 100
 
-// The number of microseconds that should be waited for bitmap data until a timeout error is returned
-#define BITMAP_READ_TIMEOUT 1000000
+// The number of milliseconds that should be waited for serial data until a timeout error is returned
+#define SERIAL_READ_TIMEOUT 1000
 
 enum displayModes {
   DISP_MODE_STATIC,
@@ -72,6 +57,28 @@ enum scrollModes {
   SCROLL_MODE_REPEAT_ON_END,
   SCROLL_MODE_REPEAT_ON_DISAPPEARANCE,
   SCROLL_MODE_REPEAT_AFTER_GAP
+};
+
+enum serialResponses {
+  ERR_INV_ACTION_BYTE = 0xE0,
+  ERR_INV_BLOCK_COUNT = 0xE1,
+  ERR_TIMEOUT = 0xE2,
+  ERR_INV_BITMAP_DATA = 0xE3,
+  ERR_INV_VALUE = 0xE4
+};
+
+enum serialMessageTypes {
+  MSG_BITMAP = 0xA0,
+  MSG_DISP_MODE = 0xA1,
+  MSG_SCROLL_SPEED = 0xA2,
+  MSG_SCROLL_DIR = 0xA3,
+  MSG_SCROLL_MODE = 0xA4,
+  MSG_SCROLL_GAP = 0xA5,
+  MSG_PWR_STATE = 0xA6,
+  MSG_BLINK_FREQ = 0xA7,
+  MSG_SI_STATE = 0xA8,
+  MSG_SCROLL_STEP = 0xA9,
+  MSG_SI_BLINK_FREQ = 0xAA
 };
 
 byte curDispData[MAX_BLOCK_COUNT + NUM_BLOCKS][8]; // + NUM_BLOCKS as a backup space for scrollMode REPEAT_ON_DISAPPEARANCE
@@ -91,7 +98,7 @@ int scrollWidth = NUM_BLOCKS;
 int curScrollPos = NUM_BLOCKS * 8;
 int curBlinkFrequency = -1;
 int curStopIndBlinkFrequency = -1;
-bool curBlinkState = true;
+bool curBlinkState = false;
 bool curStopIndBlinkState = true;
 bool isOn = false;
 bool wasOn = false;
@@ -192,54 +199,62 @@ void dumpSerialBuffer() {
   }
 }
 
+void serialResponse(byte value) {
+  // Write a response and clear the input buffer
+  clearSerialBuffer();
+  Serial.write(value);
+}
+
+bool readBytesOrTimeout(int* buffer, int length) {
+  // Read bytes from the serial port and return a Timeout Error over the serial port if necessary
+  // The built-in Serial.readBytes() didn't work because of type issues
+  
+  int startTime = millis();
+  
+  for(int n = 0; n < length; n++) {
+    while(Serial.available() <= 0) {
+      int timeTaken = millis() - startTime;
+      if(timeTaken >= SERIAL_READ_TIMEOUT || timeTaken < 0) { // Second test in case millis rolled over
+        serialResponse(ERR_TIMEOUT);
+        return false;
+      }
+    }
+    
+    buffer[n] = Serial.read();
+  }
+  
+  return true;
+}
+
 void doSerialCommunication() {
   /*
   SERIAL PROTOCOL
+  Multiple messages can be chained together so that multiple options can be set at once.
   
   <0xFF> - Start byte
+  <1 byte> - Number of individual messages being transmitted
   
-  <1 byte> - Type of message
-    <0xA0> - Send a display bitmap
-    <0xA1> - Set the display mode (Scrolling / Static / Automatic)
-    <0xA2> - Set the scroll speed (frame interval)
-    <0xA3> - Set the scroll direction (left / right)
-    <0xA4> - Set the scroll mode (repeat on visibility of end / repeat on disappearance / repeat after gap)
-    <0xA5> - Set the scroll gap
-    <0xA6> - Enable / disable display
-    <0xA7> - Set blink frequency
-    <0xA8> - Enable / disable stop indicator
-    <0xA9> - Set the scroll step (number of pixels to be shifted each frame)
-    <0xAA> - Set stop indicator blink frequency
-  
-  <0xCC> - Intermediate byte
-  
-  If sending a bitmap:
-    <1 byte> - Block count of the following bitmap
-    <0xCC> - Intermediate byte
-    <data> - Bitmap data
-  
-  Otherwise:
-    <1 byte> - Value of the selected option
-  
-  
-  
-  RESPONSE VALUES
-  
-  <0xE0> - Invalid action byte
-  <0xE1> - Invalid intermediate byte #1
-  <0xE2> - Invalid block count
-  <0xE3> - Invalid intermediate byte #2
-  <0xE4> - Timeout while receiving bitmap data
-  <0xE5> - Invalid bitmap data
-  <0xE6> - Invalid value for selected option
-  <0xFF> - Serial communication successful
+  FOR EACH INDIVIDUAL MESSAGE:
+    <1 byte> - Type of message
+    
+    If sending a bitmap:
+      <1 byte> - Block count of the following bitmap
+      <data> - Bitmap data
+    
+    Otherwise:
+      <1 byte> - Value of the selected option
   */
+  
+  // Remember if we hit a timeout
+  bool noTimeout = true;
   
   if(Serial.available() > 0) {
     // Check start byte
-    int startByte = 0x00;
+    int startByte;
     while(Serial.available() > 0) {
-      startByte = Serial.read();
+      noTimeout = readBytesOrTimeout(&startByte, 1);
+      if(!noTimeout) return;
+      
       if(startByte == 0xFF) {
         break;
       }
@@ -250,377 +265,333 @@ void doSerialCommunication() {
       return;
     }
     
-    // Check action byte
-    int actionByte = Serial.read();
-    switch(actionByte) {
-      case 0xA0:
-        // Send bitmap data
-        break;
-      
-      case 0xA1:
-        // Set display mode
-        break;
-      
-      case 0xA2:
-        // Set scroll speed
-        break;
-      
-      case 0xA3:
-        // Set scroll direction
-        break;
-      
-      case 0xA4:
-        // Set scroll mode
-        break;
-      
-      case 0xA5:
-        // Set scroll gap
-        break;
-      
-      case 0xA6:
-        // Enable / disable display
-        break;
-      
-      case 0xA7:
-        // Set blink frequency
-        break;
-      
-      case 0xA8:
-        // Enable / disable stop indicator
-        break;
-      
-      case 0xA9:
-        // Set scroll step
-        break;
-      
-      case 0xAA:
-        // Set stop indicator blink frequency
-        break;
-      
-      default:
-        // Error 0: Invalid action byte
-        //clearSerialBuffer();
-        Serial.write(0xE0);
-        Serial.write(actionByte);
-        dumpSerialBuffer();
-        return;
-    }
+    // OK, we're dealing with an actual message. Disable the matrix to prevent damage and ugly stripes
+    // This is gonna be reset when display data is written
+    // We're not using the output disable pin because that would require an extra check every multiplex cycle
+    // Whereas with this method, the reset occurs "naturally"
+    // Also, this assumes that we're only running this routine after the last row has been written
+    digitalWrite(PIN_ROW_H, HIGH);
     
-    // Check intermediate byte #1
-    int intermediateByte = Serial.read();
-    if(intermediateByte != 0xCC) {
-      // Error 1: Invalid intermediate byte #1
-      //clearSerialBuffer();
-      Serial.write(0xE1);
-      Serial.write(intermediateByte);
-      dumpSerialBuffer();
-      return;
-    }
+    // Check message count
+    int numMsgs;
+    noTimeout = readBytesOrTimeout(&numMsgs, 1);
+    if(!noTimeout) return;
     
-    int blockCount;
-    int columnCount;
-    int valueByte;
-    switch(actionByte) {
-      case 0xA0:
-        // Send bitmap data
+    // Process individual messages
+    for(int n = 0; n < numMsgs; n++) {
+      // Check action byte
+      int actionByte;
+      noTimeout = readBytesOrTimeout(&actionByte, 1);
+      if(!noTimeout) return;
+      
+      switch(actionByte) {
+        case MSG_BITMAP:
+          break;
         
-        // Check block count
-        blockCount = Serial.read();
+        case MSG_DISP_MODE:
+          break;
         
-        if(blockCount <= 0 || blockCount > MAX_BLOCK_COUNT) {
-          // Error 2: Invalid block count
-          //clearSerialBuffer();
-          Serial.write(0xE2);
-          Serial.write(blockCount);
-          dumpSerialBuffer();
+        case MSG_SCROLL_SPEED:
+          break;
+        
+        case MSG_SCROLL_DIR:
+          break;
+        
+        case MSG_SCROLL_MODE:
+          break;
+        
+        case MSG_SCROLL_GAP:
+          break;
+        
+        case MSG_PWR_STATE:
+          break;
+        
+        case MSG_BLINK_FREQ:
+          break;
+        
+        case MSG_SI_STATE:
+          break;
+        
+        case MSG_SCROLL_STEP:
+          break;
+        
+        case MSG_SI_BLINK_FREQ:
+          break;
+        
+        default:
+          serialResponse(ERR_INV_ACTION_BYTE);
           return;
-        }
-        
-        // Check intermediate byte #2
-        intermediateByte = Serial.read();
-        if(intermediateByte != 0xCC) {
-          // Error 3: Invalid intermediate byte #2
-          //clearSerialBuffer();
-          Serial.write(0xE3);
-          Serial.write(intermediateByte);
-          dumpSerialBuffer();
-          return;
-        }
-        
-        // Clear the previous display data and receive the new data
-        curDispDataBlockCount = blockCount;
-        clearDisplayData();
-        digitalWrite(PIN_OUTPUT_DISABLE, HIGH); // To prevent the high LED current from flowing through a single row for too long
-        for(int block = 0; block < blockCount; block++) {
-          for(int idx = 0; idx < 8; idx++) {
-            // Wait for data in case the buffer is empty earlier than it should be
-            // But prevent an endless loop by setting a timeout
-            if(Serial.available() <= 0) {
-              unsigned long bufEmptyStart = micros();
-              bool timeoutHit = false;
-              while(Serial.available() <= 0 && !timeoutHit) {
-                // Idle as long as the timeout hasn't been hit and no data is in the buffer
-                unsigned long timeElapsed = micros() - bufEmptyStart;
-                timeoutHit = timeElapsed >= BITMAP_READ_TIMEOUT || timeElapsed < 0; // < 0 in case the micros rolled over to zero
-              }
-              
-              if(timeoutHit) {
-                // Error 4: Timeout while receiving bitmap data
-                // Discard data that has already been received
+      }
+      
+      int blockCount;
+      int columnCount;
+      int valueByte;
+      
+      switch(actionByte) {
+        case MSG_BITMAP:
+          // Send bitmap data
+          
+          // Check block count
+          noTimeout = readBytesOrTimeout(&blockCount, 1);
+          if(!noTimeout) return;
+          
+          if(blockCount <= 0 || blockCount > MAX_BLOCK_COUNT) {
+            serialResponse(ERR_INV_BLOCK_COUNT);
+            return;
+          }
+          
+          // Clear the previous display data and receive the new data
+          curDispDataBlockCount = blockCount;
+          clearDisplayData();
+          for(int block = 0; block < blockCount; block++) {
+            for(int idx = 0; idx < 8; idx++) {
+              // Read bitmap byte
+              int curByte;
+              noTimeout = readBytesOrTimeout(&curByte, 1);
+              if(!noTimeout) {
                 clearDisplayData();
-                clearSerialBuffer();
-                digitalWrite(PIN_OUTPUT_DISABLE, LOW);
-                Serial.write(0xE4);
                 return;
               }
+              
+              if(curByte < 0x00 || curByte > 0xFF) {
+                clearDisplayData();
+                serialResponse(ERR_INV_BITMAP_DATA);
+                return;
+              }
+              curDispData[block][idx] = (byte) curByte;
             }
-            
-            // Read bitmap byte
-            int curByte = Serial.read();
-            if(curByte < 0x00 || curByte > 0xFF) {
-              // Error 5: Invalid bitmap data
-              // Discard data that has already been received
-              clearDisplayData();
-              clearSerialBuffer();
-              digitalWrite(PIN_OUTPUT_DISABLE, LOW);
-              Serial.write(0xE5);
-              return;
-            }
-            curDispData[block][idx] = (byte) curByte;
           }
-        }
-        
-        digitalWrite(PIN_OUTPUT_DISABLE, LOW);
-        updateScrollWidth();
-        if(curDispMode == DISP_MODE_AUTO) {
-          if(curDispDataBlockCount > NUM_BLOCKS) {
-            actualDispMode = DISP_MODE_SCROLL;
-          } else {
-            actualDispMode = DISP_MODE_STATIC;
-          }
-          curScrollPos = NUM_BLOCKS * 8;
-        }
-        break;
-      
-      case 0xA1:
-        // Set display mode
-        valueByte = Serial.read();
-        switch(valueByte) {
-          case 0x00:
-            // Static
-            curDispMode = DISP_MODE_STATIC;
-            actualDispMode = DISP_MODE_STATIC;
-            curScrollPos = NUM_BLOCKS * 8;
-            break;
           
-          case 0x01:
-            // Scrolling
-            curDispMode = DISP_MODE_SCROLL;
-            actualDispMode = DISP_MODE_SCROLL;
-            curScrollPos = NUM_BLOCKS * 8;
-            break;
-          
-          case 0x02:
-            // Automatic
-            curDispMode = DISP_MODE_AUTO;
+          updateScrollWidth();
+          if(curDispMode == DISP_MODE_AUTO) {
             if(curDispDataBlockCount > NUM_BLOCKS) {
               actualDispMode = DISP_MODE_SCROLL;
             } else {
               actualDispMode = DISP_MODE_STATIC;
             }
             curScrollPos = NUM_BLOCKS * 8;
-            break;
-          
-          default:
-            // Error 6: Invalid value for selected option
-            clearSerialBuffer();
-            Serial.write(0xE6);
-            return;
-        }
-        break;
-      
-      case 0xA2:
-        // Set scroll speed
-        valueByte = Serial.read();
-        // Check value
-        if(valueByte < 0x01 || valueByte > 0xFF) {
-          // Error 6: Invalid value for selected option
-          clearSerialBuffer();
-          Serial.write(0xE6);
-          return;
-        }
-        curScrollSpeed = valueByte;
-        break;
-      
-      case 0xA3:
-        // Set scroll direction
-        valueByte = Serial.read();
-        switch(valueByte) {
-          case 0x00:
-            // Left
-            curScrollDir = SCROLL_LEFT;
-            break;
-          
-          case 0x01:
-            // Right
-            curScrollDir = SCROLL_RIGHT;
-            break;
-          
-          default:
-            // Error 6: Invalid value for selected option
-            clearSerialBuffer();
-            Serial.write(0xE6);
-            return;
-        }
-        break;
-      
-      case 0xA4:
-        // Set scroll mode
-        valueByte = Serial.read();
-        switch(valueByte) {
-          case 0x00:
-            // Repeat on visibility of end
-            curScrollMode = SCROLL_MODE_REPEAT_ON_END;
-            break;
-          
-          case 0x01:
-            // Repeat on disappearance
-            curScrollMode = SCROLL_MODE_REPEAT_ON_DISAPPEARANCE;
-            break;
-          
-          case 0x02:
-            // Repeat after a gap of a specified length
-            curScrollMode = SCROLL_MODE_REPEAT_AFTER_GAP;
-            break;
-          
-          default:
-            // Error 6: Invalid value for selected option
-            clearSerialBuffer();
-            Serial.write(0xE6);
-            return;
-        }
-        updateScrollWidth();
-        break;
-      
-      case 0xA5:
-        // Set scroll gap
-        valueByte = Serial.read();
-        // Check value
-        if(valueByte < 0x00 || valueByte > NUM_BLOCKS) {
-          // Error 6: Invalid value for selected option
-          clearSerialBuffer();
-          Serial.write(0xE6);
-          return;
-        }
-        curScrollGap = valueByte;
-        updateScrollWidth();
-        break;
-      
-      case 0xA6:
-        // Enable / disable display
-        valueByte = Serial.read();
-        switch(valueByte) {
-          case 0x00:
-            // Off
-            isOn = false;
-            break;
-          
-          case 0x01:
-            // On
-            isOn = true;
-            break;
-          
-          default:
-            // Error 6: Invalid value for selected option
-            clearSerialBuffer();
-            Serial.write(0xE6);
-            return;
-        }
-        break;
-      
-      case 0xA7:
-        // Set blink frequency
-        valueByte = Serial.read();
-        // Check value
-        if(valueByte < 0x00 || valueByte > 0xFF) {
-          // Error 6: Invalid value for selected option
-          clearSerialBuffer();
-          Serial.write(0xE6);
-          return;
-        }
+          }
+          break;
         
-        if(valueByte == 0x00) {
-          curBlinkFrequency = -1;
-          curBlinkState = true;
-          curBlinkFrame = 0;
-          digitalWrite(PIN_OUTPUT_DISABLE, LOW);
-        } else {
-          curBlinkFrequency = valueByte;
-        }
+        case MSG_DISP_MODE:
+          // Set display mode
+          noTimeout = readBytesOrTimeout(&valueByte, 1);
+          if(!noTimeout) return;
+          
+          switch(valueByte) {
+            case 0x00:
+              // Static
+              curDispMode = DISP_MODE_STATIC;
+              actualDispMode = DISP_MODE_STATIC;
+              curScrollPos = NUM_BLOCKS * 8;
+              break;
+            
+            case 0x01:
+              // Scrolling
+              curDispMode = DISP_MODE_SCROLL;
+              actualDispMode = DISP_MODE_SCROLL;
+              curScrollPos = NUM_BLOCKS * 8;
+              break;
+            
+            case 0x02:
+              // Automatic
+              curDispMode = DISP_MODE_AUTO;
+              if(curDispDataBlockCount > NUM_BLOCKS) {
+                actualDispMode = DISP_MODE_SCROLL;
+              } else {
+                actualDispMode = DISP_MODE_STATIC;
+              }
+              curScrollPos = NUM_BLOCKS * 8;
+              break;
+            
+            default:
+              serialResponse(ERR_INV_VALUE);
+              return;
+          }
+          break;
         
-        break;
-      
-      case 0xA8:
-        // Enable / disable stop indicator
-        valueByte = Serial.read();
-        switch(valueByte) {
-          case 0x00:
-            // Off
-            setStopIndicator(false);
-            break;
+        case MSG_SCROLL_SPEED:
+          // Set scroll speed
+          noTimeout = readBytesOrTimeout(&valueByte, 1);
+          if(!noTimeout) return;
           
-          case 0x01:
-            // On
-            setStopIndicator(true);
-            break;
-          
-          default:
-            // Error 6: Invalid value for selected option
-            clearSerialBuffer();
-            Serial.write(0xE6);
+          // Check value
+          if(valueByte < 0x01 || valueByte > 0xFF) {
+            serialResponse(ERR_INV_VALUE);
             return;
-        }
-        break;
-      
-      case 0xA9:
-        // Set scroll step
-        valueByte = Serial.read();
-        // Check value
-        if(valueByte < 0x01 || valueByte > 0xFF) {
-          // Error 6: Invalid value for selected option
-          clearSerialBuffer();
-          Serial.write(0xE6);
-          return;
-        }
-        curScrollStep = valueByte;
-        break;
-      
-      case 0xAA:
-        // Set stop indicator blink frequency
-        valueByte = Serial.read();
-        // Check value
-        if(valueByte < 0x00 || valueByte > 0xFF) {
-          // Error 6: Invalid value for selected option
-          clearSerialBuffer();
-          Serial.write(0xE6);
-          return;
-        }
+          }
+          curScrollSpeed = valueByte;
+          break;
         
-        if(valueByte == 0x00) {
-          curStopIndBlinkFrequency = -1;
-          curStopIndBlinkState = true;
-          curStopIndBlinkFrame = 0;
-          digitalWrite(PIN_STOP_INDICATOR, stopIndicatorOn);
-        } else {
-          curStopIndBlinkFrequency = valueByte;
-        }
+        case MSG_SCROLL_DIR:
+          // Set scroll direction
+          noTimeout = readBytesOrTimeout(&valueByte, 1);
+          if(!noTimeout) return;
+          
+          switch(valueByte) {
+            case 0x00:
+              // Left
+              curScrollDir = SCROLL_LEFT;
+              break;
+            
+            case 0x01:
+              // Right
+              curScrollDir = SCROLL_RIGHT;
+              break;
+            
+            default:
+              serialResponse(ERR_INV_VALUE);
+              return;
+          }
+          break;
         
-        break;
+        case MSG_SCROLL_MODE:
+          // Set scroll mode
+          noTimeout = readBytesOrTimeout(&valueByte, 1);
+          if(!noTimeout) return;
+          
+          switch(valueByte) {
+            case 0x00:
+              // Repeat on visibility of end
+              curScrollMode = SCROLL_MODE_REPEAT_ON_END;
+              break;
+            
+            case 0x01:
+              // Repeat on disappearance
+              curScrollMode = SCROLL_MODE_REPEAT_ON_DISAPPEARANCE;
+              break;
+            
+            case 0x02:
+              // Repeat after a gap of a specified length
+              curScrollMode = SCROLL_MODE_REPEAT_AFTER_GAP;
+              break;
+            
+            default:
+              serialResponse(ERR_INV_VALUE);
+              return;
+          }
+          updateScrollWidth();
+          break;
+        
+        case MSG_SCROLL_GAP:
+          // Set scroll gap
+          noTimeout = readBytesOrTimeout(&valueByte, 1);
+          if(!noTimeout) return;
+          
+          // Check value
+          if(valueByte < 0x00 || valueByte > NUM_BLOCKS) {
+            serialResponse(ERR_INV_VALUE);
+            return;
+          }
+          curScrollGap = valueByte;
+          updateScrollWidth();
+          break;
+        
+        case MSG_PWR_STATE:
+          // Enable / disable display
+          noTimeout = readBytesOrTimeout(&valueByte, 1);
+          if(!noTimeout) return;
+          
+          switch(valueByte) {
+            case 0x00:
+              // Off
+              isOn = false;
+              break;
+            
+            case 0x01:
+              // On
+              isOn = true;
+              break;
+            
+            default:
+              serialResponse(ERR_INV_VALUE);
+              return;
+          }
+          break;
+        
+        case MSG_BLINK_FREQ:
+          // Set blink frequency
+          noTimeout = readBytesOrTimeout(&valueByte, 1);
+          if(!noTimeout) return;
+          
+          // Check value
+          if(valueByte < 0x00 || valueByte > 0xFF) {
+            serialResponse(ERR_INV_VALUE);
+            return;
+          }
+          
+          if(valueByte == 0x00) {
+            curBlinkFrequency = -1;
+            curBlinkState = false;
+            curBlinkFrame = 0;
+            digitalWrite(PIN_OUTPUT_DISABLE, LOW);
+          } else {
+            curBlinkFrequency = valueByte;
+          }
+          
+          break;
+        
+        case MSG_SI_STATE:
+          // Enable / disable stop indicator
+          noTimeout = readBytesOrTimeout(&valueByte, 1);
+          if(!noTimeout) return;
+          
+          switch(valueByte) {
+            case 0x00:
+              // Off
+              setStopIndicator(false);
+              break;
+            
+            case 0x01:
+              // On
+              setStopIndicator(true);
+              break;
+            
+            default:
+              serialResponse(ERR_INV_VALUE);
+              return;
+          }
+          break;
+        
+        case MSG_SCROLL_STEP:
+          // Set scroll step
+          noTimeout = readBytesOrTimeout(&valueByte, 1);
+          if(!noTimeout) return;
+          
+          // Check value
+          if(valueByte < 0x01 || valueByte > 0xFF) {
+            serialResponse(ERR_INV_VALUE);
+            return;
+          }
+          curScrollStep = valueByte;
+          break;
+        
+        case MSG_SI_BLINK_FREQ:
+          // Set stop indicator blink frequency
+          noTimeout = readBytesOrTimeout(&valueByte, 1);
+          if(!noTimeout) return;
+          
+          // Check value
+          if(valueByte < 0x00 || valueByte > 0xFF) {
+            serialResponse(ERR_INV_VALUE);
+            return;
+          }
+          
+          if(valueByte == 0x00) {
+            curStopIndBlinkFrequency = -1;
+            curStopIndBlinkState = true;
+            curStopIndBlinkFrame = 0;
+            digitalWrite(PIN_STOP_INDICATOR, stopIndicatorOn);
+          } else {
+            curStopIndBlinkFrequency = valueByte;
+          }
+          
+          break;
+      }
     }
     
     // Serial communication successful
-    clearSerialBuffer();
-    Serial.write(0xFF);
+    serialResponse(0xFF);
   }
 }
 
