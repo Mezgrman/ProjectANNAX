@@ -171,6 +171,8 @@ def main():
         
         if args.stop_indicator_blink_frequency is not None:
             client.set_stop_indicator_blink_frequency(args.displays, args.stop_indicator_blink_frequency)
+        
+        client.commit()
 
 if __name__ == "__main__":
     main()
