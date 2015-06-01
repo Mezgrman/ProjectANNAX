@@ -140,7 +140,7 @@ def main():
         if args.image is not None:
             print("Image sending via server is not yet supported.")
         elif args.text is not None:
-            client.send_text_message(args.displays, args.text, args.font, args.font_size, args.align, args.parse_time_string, args.blend_bitmap)
+            client.append_text_message(args.displays, args.text, args.font, args.font_size, args.align, args.parse_time_string, args.blend_bitmap)
         
         if args.display_mode is not None:
             client.set_display_mode(args.displays, args.display_mode)
@@ -158,13 +158,13 @@ def main():
             client.set_scroll_gap(args.displays, args.scroll_gap)
         
         if args.power_state is not None:
-            client.set_power_state(args.displays, args.power_state)
+            client.set_power_state(args.displays, args.power_state == 'on')
         
         if args.blink_frequency is not None:
             client.set_blink_frequency(args.displays, args.blink_frequency)
         
         if args.stop_indicator is not None:
-            client.set_stop_indicator(args.displays, args.stop_indicator)
+            client.set_stop_indicator(args.displays, args.stop_indicator == 'on')
         
         if args.scroll_step is not None:
             client.set_scroll_step(args.displays, args.scroll_step)
