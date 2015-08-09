@@ -203,7 +203,7 @@ class MatrixServer(object):
                 self.process_message(message)
 
             os.remove(CONFIG_FILE)
-        except FileNotFoundError:
+        except (IOError, OSError):
             if self.debug:
                 print("%s not found, using default configuration." % CONFIG_FILE)
 
