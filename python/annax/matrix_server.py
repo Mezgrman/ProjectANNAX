@@ -25,6 +25,7 @@ The server runs as two threads; one to listen for messages and one to control th
 
 import datetime
 import json
+import os
 import socket
 import threading
 import time
@@ -32,6 +33,8 @@ import traceback
 
 from .matrix_graphics import MatrixGraphics
 from .matrix_controller import MatrixError
+
+CONFIG_FILE = ".current_config"
 
 def receive_message(sock):
     # Receive and parse an incoming message (prefixed with its length)
@@ -173,23 +176,69 @@ class MatrixServer(object):
         }
     ]
     
-    def __init__(self, controller, port = 1810, allowed_ip_match = None):
+    def __init__(self, controller, port = 1810, allowed_ip_match = None, debug = False):
+        self.debug = debug
         self.running = False
         self.controller = controller
         self.port = port
         self.allowed_ip_match = allowed_ip_match
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.graphics = MatrixGraphics(controller)
+        # prevent having to wait between reconnects
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.graphics = MatrixGraphics(controller, debug = self.debug)
         self.message_thread = threading.Thread(target = self.network_listen)
     
     def run(self):
-        print("Starting server...")
+        if self.debug:
+            print("Starting server...")
+
+        if self.debug:
+            print("Loading configuration from file...")
+
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                config_save = json.load(f)
+
+            for message in config_save['config'] + config_save['messages']:
+                self.process_message(message)
+
+            os.remove(CONFIG_FILE)
+        except FileNotFoundError:
+            if self.debug:
+                print("%s not found, using default configuration." % CONFIG_FILE)
+
         self.running = True
         self.message_thread.start()
         self.control_loop()
     
     def stop(self):
-        print("Stopping server...")
+        if self.debug:
+            print("Saving configuration...")
+
+        config_save = {
+            'config': [],
+            'messages': []
+        }
+        
+        for display, config in enumerate(self.CURRENT_CONFIG):
+            config_save['config'].append({
+                'displays': [display],
+                'type': 'control',
+                'message': config
+            })
+
+        for display, message in enumerate(self.CURRENT_MESSAGE):
+            config_save['messages'].append({
+                'displays': [display],
+                'type': 'data',
+                'message': message
+            })
+
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config_save, f, indent = 4)
+
+        if self.debug:
+            print("Stopping server...")
         self.running = False
     
     def select_display(self, display):
@@ -211,7 +260,8 @@ class MatrixServer(object):
         # Open the network socket and listen
         self.socket.bind(('', self.port))
         self.socket.settimeout(5.0)
-        print("Listening on port %i" % self.port)
+        if self.debug:
+            print("Listening on port %i" % self.port)
         self.socket.listen(1)
         
         try:
@@ -221,11 +271,13 @@ class MatrixServer(object):
                     conn, addr = self.socket.accept()
                     ip, port = addr
                     if self.allowed_ip_match is not None and not ip.startswith(self.allowed_ip_match):
-                        print("Discarding message from %s on port %i" % addr)
+                        if self.debug:
+                            print("Discarding message from %s on port %i" % addr)
                         discard_message(conn)
                         continue
                     
-                    print("Receiving message from %s on port %i" % addr)
+                    if self.debug:
+                        print("Receiving message from %s on port %i" % addr)
                     # Receive the message
                     messages = receive_message(conn)
                     if messages is None:

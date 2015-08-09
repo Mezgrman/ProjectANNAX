@@ -3,6 +3,7 @@
         {
             "message": {
                 "duration": 5, 
+                "config": {}, 
                 "data": {
                     "blend_bitmap": false, 
                     "parse_time_string": true, 
@@ -11,7 +12,6 @@
                     "font": "press start 2p", 
                     "size": 8
                 }, 
-                "config": {}, 
                 "type": "text"
             }, 
             "type": "data", 
@@ -22,6 +22,7 @@
         {
             "message": {
                 "duration": 5, 
+                "config": {}, 
                 "data": {
                     "blend_bitmap": false, 
                     "parse_time_string": false, 
@@ -30,7 +31,6 @@
                     "font": "press start 2p", 
                     "size": 8
                 }, 
-                "config": {}, 
                 "type": "text"
             }, 
             "type": "data", 
@@ -47,11 +47,9 @@
         }, 
         {
             "message": {
-                "type": "sequence", 
                 "data": [
                     {
                         "duration": 3, 
-                        "config": {}, 
                         "data": {
                             "blend_bitmap": false, 
                             "parse_time_string": true, 
@@ -60,11 +58,11 @@
                             "font": "press start 2p", 
                             "size": 8
                         }, 
+                        "config": {}, 
                         "type": "text"
                     }, 
                     {
                         "duration": 3, 
-                        "config": {}, 
                         "data": {
                             "blend_bitmap": false, 
                             "parse_time_string": true, 
@@ -73,9 +71,11 @@
                             "font": "press start 2p", 
                             "size": 8
                         }, 
+                        "config": {}, 
                         "type": "text"
                     }
-                ]
+                ], 
+                "type": "sequence"
             }, 
             "type": "data", 
             "displays": [

@@ -24,12 +24,7 @@ the pure matrix controller functions.
 import re
 import subprocess
 
-try:
-    from PIL import Image, ImageDraw, ImageFont
-except ImportError:
-    HAVE_PIL = False
-else:
-    HAVE_PIL = True
+from PIL import Image, ImageDraw, ImageFont
 
 # A few pre-compiled bitmaps with various patterns
 BITMAP_CHECKER = [
@@ -77,10 +72,8 @@ BITMAP_EMPTY = [
 ]
 
 class MatrixGraphics(object):
-    def __init__(self, controller):
-        if not HAVE_PIL:
-            return
-        
+    def __init__(self, controller, debug = False):
+        self.debug = debug
         self.controller = controller
         self.font_list = {}
         self.load_fonts()
@@ -110,11 +103,17 @@ class MatrixGraphics(object):
             combined_name = name + " " + " ".join(styles)
             return (path, combined_name)
         
+        if self.debug:
+            print("Loading available fonts...")
+
         raw_list = subprocess.check_output(("fc-list", "-f", "%{file}:%{family}:%{style}\n", ":fontformat=TrueType")).decode('utf-8')
         font_list = dict([_parse_line(line) for line in raw_list.splitlines()])
         for path, name in font_list.items():
             if path and name:
                 self.font_list[name.lower()] = path
+
+        if self.debug:
+            print("Found %i fonts:\n%s" % (len(self.font_list), "\n".join(["- " + name.title() for name in sorted(self.font_list.keys())])))
     
     def get_font(self, query):
         query = query.lower()
@@ -280,6 +279,19 @@ class MatrixGraphics(object):
         
         font_path = self.get_font(font)
         font = ImageFont.truetype(font_path, size)
+
+        # Calculate the base height of the font in order to get the alignment right
+        # Also, font.getsize() seems to be unreliable so we have to go a bit further
+        TEST_TEXT = "GgFf"
+        approx_base_size = font.getsize(TEST_TEXT)
+        test_image = Image.new("RGB", approx_base_size, (0, 0, 0))
+        test_draw = ImageDraw.Draw(test_image)
+        test_draw.fontmode = "1"
+        test_draw.text((0, 0), TEST_TEXT, (255, 255, 255), font = font)
+        base_left, base_top, base_right, base_bottom = test_image.getbbox()
+        base_height = base_bottom - base_top
+        top_offset = 8 - base_height
+
         images = []
         for what, value in data:
             if not value:
@@ -287,10 +299,15 @@ class MatrixGraphics(object):
             
             if what == 'text':
                 width, height = font.getsize(value)
-                image = Image.new('RGB', (width, 8), (0, 0, 0))
+                image = Image.new('RGB', (width, height + top_offset), (0, 0, 0))
                 draw = ImageDraw.Draw(image)
                 draw.fontmode = "1" # Turn off antialiasing by setting the color mode to bilevel
-                draw.text((0, round((8 - height) / 2) - 1), value, (255, 255, 255), font = font)
+                draw.text((0, top_offset), value, (255, 255, 255), font = font)
+                # Auto-crop the text image because the calculated size isn't always correct
+                actual_left, actual_top, actual_right, actual_bottom = image.getbbox()
+                actual_height = actual_bottom - actual_top
+                corrected_top = actual_top - top_offset
+                image = image.crop((actual_left, corrected_top, actual_right, actual_bottom))
                 images.append(image)
             elif what == 'image':
                 images.append(Image.open(value))
