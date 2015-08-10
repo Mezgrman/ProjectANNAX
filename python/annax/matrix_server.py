@@ -44,8 +44,9 @@ def receive_message(sock):
         raw_data = bytearray()
         l = 0
         while l < length:
-            raw_data += sock.recv(1024)
-            l += 1024
+            part_data = sock.recv(4096)
+            raw_data += part_data
+            l += len(part_data)
         #raw_data = sock.recv(length)
         #print(raw_data)
         message = json.loads(raw_data.decode('utf-8'))

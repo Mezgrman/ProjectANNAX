@@ -26,6 +26,8 @@ import subprocess
 
 from PIL import Image, ImageDraw, ImageFont
 
+DEFAULT_FONT = "PixelMix"
+
 # A few pre-compiled bitmaps with various patterns
 BITMAP_CHECKER = [
     [0, 1] * 60,
@@ -135,7 +137,7 @@ class MatrixGraphics(object):
             candidates.sort(key = lambda x:len(x[0]))
             return candidates[0][1]
         else:
-            return None
+            return self.get_font(DEFAULT_FONT)
     
     def image_to_long_bitmap(self, image):
         # Convert an image to a bitmap where pixels are represented as an array of 1 and 0
