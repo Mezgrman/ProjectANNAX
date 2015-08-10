@@ -49,7 +49,7 @@ class MatrixError(Exception):
         return "%i: %s" % (self.code, self.description)
 
 class MatrixController(object):
-    def __init__(self, port, baudrate = 115200, timeout = 1.2, num_blocks = 15, max_tries = 5, retry_delay = 0.25, serial_buffer_size = 256, debug = False):
+    def __init__(self, port, baudrate = 115200, timeout = 0.25, num_blocks = 15, max_tries = 3, retry_delay = 0.0, serial_buffer_size = 256, debug = False):
         self.port = serial.serial_for_url(port, baudrate = baudrate, timeout = timeout)
         self.num_blocks = num_blocks
         self.max_tries = max_tries

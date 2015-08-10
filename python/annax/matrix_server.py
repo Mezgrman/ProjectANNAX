@@ -188,31 +188,8 @@ class MatrixServer(object):
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.graphics = MatrixGraphics(controller, debug = self.debug)
         self.message_thread = threading.Thread(target = self.network_listen)
-    
-    def run(self):
-        if self.debug:
-            print("Starting server...")
 
-        if self.debug:
-            print("Loading configuration from file...")
-
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                config_save = json.load(f)
-
-            for message in config_save['config'] + config_save['messages']:
-                self.process_message(message)
-
-            os.remove(CONFIG_FILE)
-        except (IOError, OSError):
-            if self.debug:
-                print("%s not found, using default configuration." % CONFIG_FILE)
-
-        self.running = True
-        self.message_thread.start()
-        self.control_loop()
-    
-    def stop(self):
+    def save_config(self):
         if self.debug:
             print("Saving configuration...")
 
@@ -237,6 +214,32 @@ class MatrixServer(object):
 
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config_save, f, indent = 4)
+
+    def load_config(self):
+        if self.debug:
+            print("Loading configuration from file...")
+
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                config_save = json.load(f)
+
+            for message in config_save['config'] + config_save['messages']:
+                self.process_message(message)
+        except (IOError, OSError):
+            if self.debug:
+                print("%s not found, using default configuration." % CONFIG_FILE)
+    
+    def run(self):
+        if self.debug:
+            print("Starting server...")
+
+        self.load_config()
+        self.running = True
+        self.message_thread.start()
+        self.control_loop()
+    
+    def stop(self):
+        self.save_config()
 
         if self.debug:
             print("Stopping server...")
@@ -435,11 +438,15 @@ class MatrixServer(object):
                         success = False
                         error = "Invalid configuration option: %s" % key
                         break
+            if success:
+                self.save_config()
             return {'success': success, 'error': error}
         elif message['type'] == 'data':
             for display in message.get('displays', []):
                 self.CURRENT_MESSAGE[display] = message['message']
                 self.UPDATE_DATA[display]['message_changed'] = True
+            if success:
+                self.save_config()
             return {'success': success, 'error': error}
         elif message['type'] == 'query-config':
             displays = message.get('displays')
